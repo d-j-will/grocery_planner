@@ -90,7 +90,8 @@ defmodule GroceryPlanner.Onboarding.StarterData do
   end
 
   defp load_catalog do
-    "priv/recipe_catalog.json"
+    :grocery_planner
+    |> Application.app_dir("priv/recipe_catalog.json")
     |> File.read!()
     |> Jason.decode!(keys: :atoms)
   end
