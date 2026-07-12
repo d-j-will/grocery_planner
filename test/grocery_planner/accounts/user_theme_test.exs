@@ -18,7 +18,7 @@ defmodule GroceryPlanner.Accounts.UserThemeTest do
             "password123password123"
           )
 
-        assert {:ok, updated} = User.update(user, %{theme: theme})
+        assert {:ok, updated} = User.update(user, %{theme: theme}, actor: user)
         assert updated.theme == theme
       end
     end
@@ -32,11 +32,11 @@ defmodule GroceryPlanner.Accounts.UserThemeTest do
         )
 
       # Test with old "progressive" theme (should be invalid now)
-      assert {:error, error} = User.update(user, %{theme: "progressive"})
+      assert {:error, error} = User.update(user, %{theme: "progressive"}, actor: user)
       assert error.errors |> Enum.any?(fn e -> e.field == :theme end)
 
       # Test with random invalid theme
-      assert {:error, error} = User.update(user, %{theme: "invalid_theme"})
+      assert {:error, error} = User.update(user, %{theme: "invalid_theme"}, actor: user)
       assert error.errors |> Enum.any?(fn e -> e.field == :theme end)
     end
 
@@ -61,7 +61,7 @@ defmodule GroceryPlanner.Accounts.UserThemeTest do
 
       assert user.theme == "light"
 
-      {:ok, updated} = User.update(user, %{theme: "cyberpunk"})
+      {:ok, updated} = User.update(user, %{theme: "cyberpunk"}, actor: user)
       assert updated.theme == "cyberpunk"
     end
   end

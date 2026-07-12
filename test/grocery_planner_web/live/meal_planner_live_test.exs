@@ -7,7 +7,8 @@ defmodule GroceryPlannerWeb.MealPlannerLiveTest do
     account = create_account()
     user = create_user(account)
 
-    {:ok, user} = GroceryPlanner.Accounts.User.update(user, %{meal_planner_layout: "focus"})
+    {:ok, user} =
+      GroceryPlanner.Accounts.User.update(user, %{meal_planner_layout: "focus"}, actor: user)
 
     today = Date.utc_today()
     week_start = Date.add(today, -(Date.day_of_week(today) - 1))
@@ -70,7 +71,7 @@ defmodule GroceryPlannerWeb.MealPlannerLiveTest do
       assert has_element?(view, "#explorer-timeline")
       assert has_element?(view, "#meal-planner-layout-explorer")
 
-      updated_user = Ash.get!(GroceryPlanner.Accounts.User, user.id)
+      {:ok, updated_user} = GroceryPlanner.Accounts.User.by_id(user.id, actor: user)
       assert updated_user.meal_planner_layout == "explorer"
     end
   end

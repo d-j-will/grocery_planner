@@ -35,8 +35,16 @@ defmodule GroceryPlanner.Accounts.AccountMembership do
   end
 
   policies do
-    policy always() do
-      authorize_if always()
+    policy action_type(:read) do
+      authorize_if relates_to_actor_via([:account, :memberships, :user])
+    end
+
+    policy action_type(:create) do
+      authorize_if {GroceryPlanner.Checks.ActorOwnerOrAdminOfAccount, []}
+    end
+
+    policy action_type([:update, :destroy]) do
+      authorize_if {GroceryPlanner.Checks.ActorOwnerOrAdminOfAccount, []}
     end
   end
 

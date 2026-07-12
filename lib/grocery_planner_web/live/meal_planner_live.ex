@@ -85,9 +85,11 @@ defmodule GroceryPlannerWeb.MealPlannerLive do
   # Layout switching
   def handle_event("meal_planner_set_layout", %{"layout" => layout}, socket)
       when layout in ["explorer", "focus", "power"] do
-    case GroceryPlanner.Accounts.User.update(socket.assigns.current_user, %{
-           meal_planner_layout: layout
-         }) do
+    case GroceryPlanner.Accounts.User.update(
+           socket.assigns.current_user,
+           %{meal_planner_layout: layout},
+           actor: socket.assigns.current_user
+         ) do
       {:ok, user} ->
         socket =
           socket

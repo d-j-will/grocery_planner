@@ -19,7 +19,9 @@ defmodule GroceryPlanner.Analytics.TrendsTest do
       |> Ash.create!()
 
     # Link user to account
-    case Accounts.AccountMembership.create(account.id, user.id, %{role: :owner}) do
+    case Accounts.AccountMembership.create(account.id, user.id, %{role: :owner},
+           authorize?: false
+         ) do
       {:ok, membership} ->
         membership
 

@@ -40,7 +40,7 @@ defmodule GroceryPlanner.Accounts.Account do
     end
 
     policy action_type([:update, :destroy]) do
-      authorize_if relates_to_actor_via([:memberships, :user], filter: [role: [:owner, :admin]])
+      authorize_if {GroceryPlanner.Checks.ActorOwnerOrAdminOfAccount, account_id_field: :id}
     end
   end
 

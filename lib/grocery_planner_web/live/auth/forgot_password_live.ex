@@ -28,7 +28,7 @@ defmodule GroceryPlannerWeb.Auth.ForgotPasswordLive do
   end
 
   defp send_reset_email_if_user_exists(email) do
-    case Accounts.User.by_email(email) do
+    case Accounts.User.by_email(email, authorize?: false) do
       {:ok, user} when not is_nil(user) ->
         case Accounts.User.request_password_reset(user, authorize?: false) do
           {:ok, updated_user} ->

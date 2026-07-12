@@ -14,7 +14,7 @@ defmodule GroceryPlannerWeb.Plugs.ApiAuth do
       with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
            {:ok, user_id} <-
              Phoenix.Token.verify(GroceryPlannerWeb.Endpoint, "user auth", token, max_age: 86_400),
-           {:ok, user} <- User.by_id(user_id),
+           {:ok, user} <- User.by_id(user_id, authorize?: false),
            {:ok, user} <- Ash.load(user, :accounts, authorize?: false) do
         account = List.first(user.accounts)
 

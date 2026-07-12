@@ -32,13 +32,14 @@ defmodule GroceryPlanner.Accounts.UserPasswordResetTest do
       {:ok, user} = create_test_user()
       {:ok, updated_user} = User.request_password_reset(user, authorize?: false)
 
-      {:ok, found_user} = User.by_reset_token(updated_user.reset_password_token)
+      {:ok, found_user} =
+        User.by_reset_token(updated_user.reset_password_token, authorize?: false)
 
       assert found_user.id == user.id
     end
 
     test "returns error for invalid token" do
-      result = User.by_reset_token("invalid-token")
+      result = User.by_reset_token("invalid-token", authorize?: false)
 
       assert {:error, %Ash.Error.Invalid{}} = result
     end

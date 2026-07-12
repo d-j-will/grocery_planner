@@ -119,6 +119,121 @@ defmodule GroceryPlanner.Accounts.AccountMembershipTest do
     end
   end
 
+  describe "authorization" do
+    setup %{account: account, user: owner} do
+      {:ok, owner_membership} =
+        AccountMembership.create(account.id, owner.id, %{role: :owner}, authorize?: false)
+
+      {:ok, member} = User.create("member2@example.com", "Member", "password123456")
+
+      {:ok, member_membership} =
+        AccountMembership.create(account.id, member.id, %{role: :member}, authorize?: false)
+
+      %{
+        owner: owner,
+        owner_membership: owner_membership,
+        member: member,
+        member_membership: member_membership
+      }
+    end
+
+    test "owner can add a member", %{account: account, owner: owner} do
+      {:ok, invitee} = User.create("invitee@example.com", "Invitee", "password123456")
+
+      assert {:ok, membership} =
+               AccountMembership.create(account.id, invitee.id, %{role: :member},
+                 actor: owner,
+                 authorize?: true
+               )
+
+      assert membership.role == :member
+    end
+
+    test "member cannot add themselves as owner (role escalation)", %{
+      account: account,
+      member: member
+    } do
+      {:ok, colluder} = User.create("colluder@example.com", "Colluder", "password123456")
+
+      result =
+        AccountMembership.create(account.id, colluder.id, %{role: :owner},
+          actor: member,
+          authorize?: true
+        )
+
+      assert {:error, %Ash.Error.Forbidden{}} = result
+    end
+
+    test "member cannot add anyone at all", %{account: account, member: member} do
+      {:ok, invitee} = User.create("invitee2@example.com", "Invitee", "password123456")
+
+      result =
+        AccountMembership.create(account.id, invitee.id, %{role: :member},
+          actor: member,
+          authorize?: true
+        )
+
+      assert {:error, %Ash.Error.Forbidden{}} = result
+    end
+
+    test "outsider cannot add members to an account they don't belong to", %{account: account} do
+      {:ok, outsider} = User.create("outsider@example.com", "Outsider", "password123456")
+      {:ok, invitee} = User.create("invitee3@example.com", "Invitee", "password123456")
+
+      result =
+        AccountMembership.create(account.id, invitee.id, %{role: :member},
+          actor: outsider,
+          authorize?: true
+        )
+
+      assert {:error, %Ash.Error.Forbidden{}} = result
+    end
+
+    test "owner can remove a member", %{owner: owner, member_membership: member_membership} do
+      assert :ok = AccountMembership.destroy(member_membership, actor: owner, authorize?: true)
+    end
+
+    test "member cannot remove the owner's membership", %{
+      owner_membership: owner_membership,
+      member: member
+    } do
+      result = AccountMembership.destroy(owner_membership, actor: member, authorize?: true)
+
+      assert {:error, %Ash.Error.Forbidden{}} = result
+    end
+
+    test "member cannot change their own role to owner", %{
+      member: member,
+      member_membership: member_membership
+    } do
+      result =
+        AccountMembership.update(member_membership, %{role: :owner},
+          actor: member,
+          authorize?: true
+        )
+
+      assert {:error, %Ash.Error.Forbidden{}} = result
+    end
+
+    test "admin can change a member's role", %{
+      account: account,
+      member_membership: member_membership
+    } do
+      {:ok, admin} = User.create("admin2@example.com", "Admin", "password123456")
+
+      {:ok, _admin_membership} =
+        AccountMembership.create(account.id, admin.id, %{role: :admin}, authorize?: false)
+
+      assert {:ok, updated} =
+               AccountMembership.update(member_membership, %{role: :admin},
+                 actor: admin,
+                 authorize?: true
+               )
+
+      assert updated.role == :admin
+    end
+  end
+
   describe "role constraints" do
     test "all valid roles are accepted", %{account: account} do
       valid_roles = [:owner, :admin, :member]

@@ -102,8 +102,18 @@ defmodule GroceryPlanner.Accounts.User do
   end
 
   policies do
-    policy always() do
+    policy action_type(:create) do
       authorize_if always()
+    end
+
+    policy action_type(:read) do
+      authorize_if expr(id == ^actor(:id))
+      # account-mates need to see each other's name/email on the settings roster
+      authorize_if relates_to_actor_via([:memberships, :account, :memberships, :user])
+    end
+
+    policy action_type([:update, :destroy]) do
+      authorize_if expr(id == ^actor(:id))
     end
   end
 

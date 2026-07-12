@@ -11,7 +11,8 @@ defmodule GroceryPlannerWeb.MealPlannerPowerModeTest do
     user = create_user(account)
 
     # Set user to power mode
-    {:ok, user} = GroceryPlanner.Accounts.User.update(user, %{meal_planner_layout: "power"})
+    {:ok, user} =
+      GroceryPlanner.Accounts.User.update(user, %{meal_planner_layout: "power"}, actor: user)
 
     today = Date.utc_today()
     week_start = Date.add(today, -(Date.day_of_week(today) - 1))
