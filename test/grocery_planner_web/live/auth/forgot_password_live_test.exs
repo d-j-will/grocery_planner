@@ -52,7 +52,7 @@ defmodule GroceryPlannerWeb.Auth.ForgotPasswordLiveTest do
     |> render_submit()
 
     # Verify the user now has a reset token
-    {:ok, updated_user} = User.by_email("resettest@example.com")
+    {:ok, updated_user} = User.by_email("resettest@example.com", authorize?: false)
     assert updated_user.reset_password_token != nil
     assert updated_user.reset_password_sent_at != nil
   end

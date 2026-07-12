@@ -63,7 +63,7 @@ defmodule GroceryPlannerWeb.Auth.ResetPasswordLive do
   end
 
   defp validate_token(token) do
-    case Accounts.User.by_reset_token(token) do
+    case Accounts.User.by_reset_token(token, authorize?: false) do
       {:ok, user} when not is_nil(user) ->
         if token_expired?(user.reset_password_sent_at) do
           {:error, :expired}

@@ -19,7 +19,8 @@ defmodule GroceryPlannerWeb.MealPlannerLive.ExplorerLayoutTest do
     create_recipe(account, user, %{name: "Toast", prep_time_minutes: 2, cook_time_minutes: 2})
 
     # Set layout to explorer
-    {:ok, user} = GroceryPlanner.Accounts.User.update(user, %{meal_planner_layout: "explorer"})
+    {:ok, user} =
+      GroceryPlanner.Accounts.User.update(user, %{meal_planner_layout: "explorer"}, actor: user)
 
     today = Date.utc_today()
     week_start = Date.add(today, -(Date.day_of_week(today) - 1))

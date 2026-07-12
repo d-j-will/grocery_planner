@@ -8,7 +8,8 @@ defmodule GroceryPlannerWeb.MealPlannerFocusLiveTest do
     account = create_account()
     user = create_user(account)
 
-    {:ok, user} = GroceryPlanner.Accounts.User.update(user, %{meal_planner_layout: "focus"})
+    {:ok, user} =
+      GroceryPlanner.Accounts.User.update(user, %{meal_planner_layout: "focus"}, actor: user)
 
     conn =
       build_conn()

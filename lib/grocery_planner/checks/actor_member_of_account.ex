@@ -12,7 +12,7 @@ defmodule GroceryPlanner.Checks.ActorMemberOfAccount do
     exists? =
       GroceryPlanner.Accounts.AccountMembership
       |> Ash.Query.filter(account_id == ^account_id and user_id == ^actor.id)
-      |> Ash.exists?(domain: GroceryPlanner.Accounts)
+      |> Ash.exists?(domain: GroceryPlanner.Accounts, authorize?: false)
 
     {:ok, exists?}
   end

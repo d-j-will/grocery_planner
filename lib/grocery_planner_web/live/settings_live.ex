@@ -12,8 +12,9 @@ defmodule GroceryPlannerWeb.SettingsLive do
       Voting.voting_active?(socket.assigns.current_account.id, socket.assigns.current_user)
 
     socket = assign(socket, :current_scope, socket.assigns.current_account)
-    account = Ash.load!(socket.assigns.current_account, [:memberships])
-    memberships = Ash.load!(account.memberships, [:user])
+    actor = socket.assigns.current_user
+    account = Ash.load!(socket.assigns.current_account, [:memberships], actor: actor)
+    memberships = Ash.load!(account.memberships, [:user], actor: actor)
 
     current_membership =
       Enum.find(memberships, fn m -> m.user_id == socket.assigns.current_user.id end)
@@ -166,13 +167,17 @@ defmodule GroceryPlannerWeb.SettingsLive do
   end
 
   def handle_event("update_user", %{"user" => params}, socket) do
-    case Accounts.User.update(socket.assigns.current_user, %{
-           name: params["name"],
-           email: params["email"],
-           theme: params["theme"],
-           meal_planner_layout: params["meal_planner_layout"],
-           family_focus: params["family_focus"] == "true"
-         }) do
+    case Accounts.User.update(
+           socket.assigns.current_user,
+           %{
+             name: params["name"],
+             email: params["email"],
+             theme: params["theme"],
+             meal_planner_layout: params["meal_planner_layout"],
+             family_focus: params["family_focus"] == "true"
+           },
+           actor: socket.assigns.current_user
+         ) do
       {:ok, user} ->
         {:noreply,
          socket
@@ -198,57 +203,75 @@ defmodule GroceryPlannerWeb.SettingsLive do
   end
 
   def handle_event("send_invitation", %{"email" => email, "role" => role}, socket) do
-    case Accounts.User.by_email(email) do
-      {:ok, user} ->
-        role_atom = String.to_existing_atom(role)
+    actor = socket.assigns.current_user
 
-        case Accounts.AccountMembership.create(
-               socket.assigns.current_account.id,
-               user.id,
-               %{role: role_atom}
-             ) do
-          {:ok, _membership} ->
-            memberships =
-              socket.assigns.current_account
-              |> Ash.load!([:memberships])
-              |> Map.get(:memberships)
-              |> Ash.load!([:user])
+    if socket.assigns.current_role in [:owner, :admin] do
+      # authorize?: false is safe here: this only resolves an email to a user id
+      # for the membership create below, which is itself role-gated by policy.
+      case Accounts.User.by_email(email, authorize?: false) do
+        {:ok, user} ->
+          role_atom = String.to_existing_atom(role)
 
-            {:noreply,
-             socket
-             |> put_flash(:info, "Member added successfully")
-             |> assign(:memberships, memberships)
-             |> assign(:show_invite_form, false)
-             |> assign(:invite_form, to_form(%{}))}
+          case Accounts.AccountMembership.create(
+                 socket.assigns.current_account.id,
+                 user.id,
+                 %{role: role_atom},
+                 actor: actor
+               ) do
+            {:ok, _membership} ->
+              memberships =
+                socket.assigns.current_account
+                |> Ash.load!([:memberships], actor: actor)
+                |> Map.get(:memberships)
+                |> Ash.load!([:user], actor: actor)
 
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to add member")}
-        end
+              {:noreply,
+               socket
+               |> put_flash(:info, "Member added successfully")
+               |> assign(:memberships, memberships)
+               |> assign(:show_invite_form, false)
+               |> assign(:invite_form, to_form(%{}))}
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "User with that email not found")}
+            {:error, _} ->
+              {:noreply, put_flash(socket, :error, "Failed to add member")}
+          end
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "User with that email not found")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to add members")}
     end
   end
 
   def handle_event("remove_member", %{"id" => id}, socket) do
-    membership =
-      Enum.find(socket.assigns.memberships, fn m -> m.id == id end)
+    actor = socket.assigns.current_user
+    membership = Enum.find(socket.assigns.memberships, fn m -> m.id == id end)
 
-    case Accounts.AccountMembership.destroy(membership) do
-      :ok ->
-        memberships =
-          socket.assigns.current_account
-          |> Ash.load!([:memberships])
-          |> Map.get(:memberships)
-          |> Ash.load!([:user])
-
-        {:noreply,
-         socket
-         |> put_flash(:info, "Member removed successfully")
-         |> assign(:memberships, memberships)}
-
-      {:error, _} ->
+    cond do
+      is_nil(membership) ->
         {:noreply, put_flash(socket, :error, "Failed to remove member")}
+
+      socket.assigns.current_role not in [:owner, :admin] ->
+        {:noreply, put_flash(socket, :error, "You do not have permission to remove members")}
+
+      true ->
+        case Accounts.AccountMembership.destroy(membership, actor: actor) do
+          :ok ->
+            memberships =
+              socket.assigns.current_account
+              |> Ash.load!([:memberships], actor: actor)
+              |> Map.get(:memberships)
+              |> Ash.load!([:user], actor: actor)
+
+            {:noreply,
+             socket
+             |> put_flash(:info, "Member removed successfully")
+             |> assign(:memberships, memberships)}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to remove member")}
+        end
     end
   end
 end

@@ -94,9 +94,7 @@ defmodule GroceryPlanner.Accounts.AccountTest do
           assert Enum.any?(errors, fn e -> match?(%Ash.Error.Forbidden{}, e) end)
 
         {:ok, _} ->
-          # Policy may allow members to update - skip this test if so
-          # This documents the current behavior
-          assert true
+          flunk("Expected regular member update to be forbidden")
       end
     end
 

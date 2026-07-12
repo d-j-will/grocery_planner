@@ -26,7 +26,7 @@ defmodule GroceryPlannerWeb.AuthController do
   end
 
   defp authenticate_user(email, password) do
-    case Accounts.User.by_email(email) do
+    case Accounts.User.by_email(email, authorize?: false) do
       {:ok, user} when not is_nil(user) ->
         if Bcrypt.verify_pass(password, user.hashed_password) do
           {:ok, user}

@@ -3,6 +3,8 @@ defmodule GroceryPlannerWeb.SettingsLiveTest do
   import Phoenix.LiveViewTest
   import GroceryPlanner.InventoryTestHelpers
 
+  alias GroceryPlanner.Accounts
+
   setup do
     account = create_account()
     user = create_user(account)
@@ -114,8 +116,68 @@ defmodule GroceryPlannerWeb.SettingsLiveTest do
 
       assert render(view) =~ "Profile updated successfully"
 
-      {:ok, updated_user} = GroceryPlanner.Accounts.User.by_id(user.id)
+      {:ok, updated_user} = GroceryPlanner.Accounts.User.by_id(user.id, actor: user)
       assert updated_user.meal_planner_layout == "explorer"
+    end
+  end
+
+  describe "Member role authorization" do
+    setup %{account: account} do
+      {:ok, member} =
+        Accounts.User.create("member@example.com", "Member User", "password123456",
+          authorize?: false
+        )
+
+      {:ok, _membership} =
+        Accounts.AccountMembership.create(account.id, member.id, %{role: :member},
+          authorize?: false
+        )
+
+      member_conn =
+        build_conn()
+        |> init_test_session(%{user_id: member.id, account_id: account.id})
+
+      %{member_conn: member_conn, member: member}
+    end
+
+    test "member cannot add an owner via a forged invitation event", %{
+      member_conn: member_conn,
+      account: account
+    } do
+      {:ok, view, _html} = live(member_conn, "/settings")
+
+      render_submit(view, "send_invitation", %{
+        "email" => "colluder@example.com",
+        "role" => "owner"
+      })
+
+      assert render(view) =~ "You do not have permission to add members"
+
+      {:ok, memberships} = Accounts.AccountMembership.read(authorize?: false)
+      account_memberships = Enum.filter(memberships, &(&1.account_id == account.id))
+
+      # only the pre-existing owner + member, no colluder was added
+      assert length(account_memberships) == 2
+    end
+
+    test "member cannot remove the owner via a forged remove event", %{
+      member_conn: member_conn,
+      account: account,
+      user: owner
+    } do
+      {:ok, view, _html} = live(member_conn, "/settings")
+
+      {:ok, memberships} = Accounts.AccountMembership.read(authorize?: false)
+
+      owner_membership =
+        Enum.find(memberships, &(&1.account_id == account.id and &1.user_id == owner.id))
+
+      render_click(view, "remove_member", %{"id" => owner_membership.id})
+
+      assert render(view) =~ "You do not have permission to remove members"
+
+      {:ok, memberships_after} = Accounts.AccountMembership.read(authorize?: false)
+      assert Enum.any?(memberships_after, &(&1.id == owner_membership.id))
     end
   end
 end

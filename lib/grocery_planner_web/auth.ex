@@ -52,7 +52,7 @@ defmodule GroceryPlannerWeb.Auth do
 
   defp find_current_user(session) do
     with user_id when not is_nil(user_id) <- session["user_id"],
-         {:ok, user} <- GroceryPlanner.Accounts.User.by_id(user_id) do
+         {:ok, user} <- GroceryPlanner.Accounts.User.by_id(user_id, authorize?: false) do
       user
     else
       _ -> nil
@@ -71,7 +71,7 @@ defmodule GroceryPlannerWeb.Auth do
   end
 
   def by_id!(user_id) do
-    case GroceryPlanner.Accounts.User.by_id(user_id) do
+    case GroceryPlanner.Accounts.User.by_id(user_id, authorize?: false) do
       {:ok, user} -> user
       _ -> nil
     end

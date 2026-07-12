@@ -40,7 +40,7 @@ defmodule GroceryPlannerWeb.Auth.ResetPasswordLiveTest do
       assert_redirect(view, "/sign-in")
 
       # Verify password was changed
-      {:ok, updated_user} = User.by_id(user.id)
+      {:ok, updated_user} = User.by_id(user.id, authorize?: false)
       assert Bcrypt.verify_pass("newpassword123", updated_user.hashed_password)
       assert updated_user.reset_password_token == nil
     end
