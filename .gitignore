@@ -77,3 +77,8 @@ python_service/tests/*.RAW-01.COVER.jpg
 # Local agent/session state
 .omc/
 **/.omc/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

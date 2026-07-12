@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "grocery_planner",
+  "project_id": "61a60898-1258-484a-b591-192c488b038a"
+}
