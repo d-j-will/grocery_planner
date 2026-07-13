@@ -1,0 +1,124 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# PROTOTYPE — wayfinder ticket grocery_planner-tdu.4. Draft to react to;
+# not yet deployed anywhere. Lives on branch prototype/prod-compose until
+# the deploy-workflow ticket (tdu.6) promotes it.
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Target: /root/grocery_planner/ on the Docker host (192.168.1.102),
+# slackex pattern: this file + .env in the app dir, caddy-docker-proxy
+# discovers the app via labels, postgres stays on the implicit default
+# network, app joins default + proxy.
+#
+# One-time provisioning on the host (goes into the deploy runbook):
+#   docker volume create grocery_planner_receipt-uploads
+#   docker volume create grocery_planner_hf-cache
+#   # named volumes are created root-owned; the app runs as nobody (65534)
+#   # and the sidecar as appuser (1000):
+#   docker run --rm -v grocery_planner_receipt-uploads:/v alpine chown 65534:65534 /v
+#   docker run --rm -v grocery_planner_hf-cache:/v alpine chown 1000:1000 /v
+#
+# Migrations (deploy workflow, before recreate):
+#   docker compose -f docker-compose.prod.yml run --rm app \
+#     /app/bin/grocery_planner eval "GroceryPlanner.Release.migrate()"
+#
+# NOTE: app healthcheck requires curl in the runner image (Dockerfile
+# currently installs only libstdc++6/openssl/ncurses/locales — add curl).
+
+services:
+  app:
+    image: ghcr.io/davewil/grocery_planner:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PHX_SERVER: "true"
+      PHX_HOST: food.davewil.dev
+      PORT: "4000"
+      AI_SERVICE_URL: http://ai-service:8000
+      RECEIPT_STORAGE_PATH: /data/uploads/receipts
+      # Feature flags — day-one posture (react to this):
+      RECEIPT_PROCESSING_ENABLED: "true"
+      SEMANTIC_SEARCH_ENABLED: "true"
+      AI_CATEGORIZATION_ENABLED: "false" # sidecar real-ML classification is off (CPU scope); don't serve stub categories
+    volumes:
+      - receipt-uploads:/data/uploads/receipts
+    networks:
+      - default
+      - proxy
+    labels:
+      caddy: food.davewil.dev
+      caddy.reverse_proxy: "{{upstreams 4000}}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-service:
+        # started, not healthy: sidecar is optional (health reports "degraded",
+        # app must boot without it) — see grocery_planner-c29
+        condition: service_started
+        required: false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health_check"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  postgres:
+    image: pgvector/pgvector:pg18 # per research ticket tdu.1; pin digest at deploy
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    # implicit default network only — never on proxy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ai-service:
+    image: ghcr.io/davewil/grocery_planner-ai:latest
+    restart: unless-stopped
+    environment:
+      # CPU-only, hard constraint: vLLM stays off, Tesseract on
+      USE_VLLM_OCR: "false"
+      USE_TESSERACT_OCR: "true"
+      USE_REAL_CLASSIFICATION: "false" # distilbart-mnli is a ~1GB CPU-hungry model — out of scope
+      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
+      DEBUG: "false"
+      TIDEWAVE_ENABLED: "false" # dev tool; defaults to TRUE in config.py — must be off
+      OTEL_ENABLED: "false" # flipped by the OTel exporter ticket (t7j)
+      AI_DATABASE_URL: sqlite:////data/ai_data.db
+    volumes:
+      # MiniLM (~90MB) downloads from HF on first boot into appuser's cache;
+      # volume-backed so recreates don't re-download. Alternative (rejected
+      # for now): bake the model into the image — bigger image, no first-boot
+      # network dependency. Revisit if first boot on the homelab is painful.
+      - hf-cache:/home/appuser/.cache
+      - ai-data:/data
+    # default network only — reached via app, never public
+    # Sizing: react to this — VM specs unknown to the draft. Ceiling chosen
+    # so an OCR burst can't starve postgres/app on the shared host.
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s # first boot downloads the embedding model
+
+volumes:
+  pg-data:
+  receipt-uploads:
+  hf-cache:
+  ai-data:
+
+networks:
+  proxy:
+    external: true
