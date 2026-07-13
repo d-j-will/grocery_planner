@@ -234,6 +234,37 @@ defmodule GroceryPlannerWeb.MealPlannerFocusLiveTest do
       assert html =~ "Yesterday Dinner"
     end
 
+    test "copies meals across the week boundary (Monday copying from Sunday)", %{
+      conn: conn,
+      account: account,
+      user: user
+    } do
+      # Regression: source meals used to be read from the week_meals cache,
+      # which only holds the displayed week - so on Mondays "yesterday" was
+      # never found. Pin the Monday case by selecting the week's first day.
+      today = Date.utc_today()
+      monday = Date.add(today, -(Date.day_of_week(today) - 1))
+      sunday_before = Date.add(monday, -1)
+
+      recipe = create_recipe(account, user, %{name: "Sunday Dinner"})
+
+      create_meal_plan(account, user, recipe, %{
+        scheduled_date: sunday_before,
+        meal_type: :dinner,
+        servings: 4
+      })
+
+      {:ok, view, _html} = live(conn, "/meal-planner")
+
+      render_click(view, "focus_select_day", %{"date" => Date.to_iso8601(monday)})
+      render_click(view, "copy_previous_day", %{})
+
+      html = render(view)
+
+      assert html =~ "Copied meals from yesterday"
+      assert html =~ "Sunday Dinner"
+    end
+
     test "shows info flash when no meals on previous day", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/meal-planner")
 
