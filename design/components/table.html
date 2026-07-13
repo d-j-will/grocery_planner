@@ -1,0 +1,52 @@
+<!-- @dsCard group="Data display" name="Table" subtitle="Zebra table with actions column — CoreComponents.table/1" -->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table</title>
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body class="bg-base-200 min-h-screen p-8">
+<select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
+  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+</select>
+
+<div class="max-w-3xl mx-auto bg-base-100 rounded-2xl border border-base-200 shadow-sm p-6">
+  <table class="table table-zebra">
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th>Category</th>
+        <th>Quantity</th>
+        <th>Expires</th>
+        <th><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="hover:cursor-pointer">Whole milk</td>
+        <td>Dairy</td>
+        <td>2 L</td>
+        <td><span class="badge badge-warning badge-sm">3 days</span></td>
+        <td class="w-0 font-semibold"><div class="flex gap-4"><a class="link link-hover" href="#">Edit</a><a class="link link-hover text-error" href="#">Delete</a></div></td>
+      </tr>
+      <tr>
+        <td class="hover:cursor-pointer">Basmati rice</td>
+        <td>Pantry</td>
+        <td>5 kg</td>
+        <td><span class="badge badge-success badge-sm">6 months</span></td>
+        <td class="w-0 font-semibold"><div class="flex gap-4"><a class="link link-hover" href="#">Edit</a><a class="link link-hover text-error" href="#">Delete</a></div></td>
+      </tr>
+      <tr>
+        <td class="hover:cursor-pointer">Chicken thighs</td>
+        <td>Freezer</td>
+        <td>1.2 kg</td>
+        <td><span class="badge badge-error badge-sm">Expired</span></td>
+        <td class="w-0 font-semibold"><div class="flex gap-4"><a class="link link-hover" href="#">Edit</a><a class="link link-hover text-error" href="#">Delete</a></div></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+</body>
+</html>

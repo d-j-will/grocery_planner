@@ -1,0 +1,49 @@
+<!-- @dsCard group="Cards" name="Nav cards" subtitle="Dashboard navigation cards — UIComponents.nav_card/1" -->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nav cards</title>
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body class="bg-base-200 min-h-screen p-8">
+<select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
+  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+</select>
+
+<div class="max-w-4xl mx-auto grid sm:grid-cols-2 gap-6">
+  <a href="#" class="group p-8 bg-base-100 rounded-box shadow-sm border border-base-200 hover:shadow-lg transition-all block">
+    <div class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4 group-hover:bg-primary/20 transition">
+      <span class="hero-cube w-6 h-6 text-primary"></span>
+    </div>
+    <h3 class="text-xl font-semibold text-base-content mb-2">Inventory</h3>
+    <p class="text-base-content/70">Manage your grocery items and track what's in stock</p>
+  </a>
+
+  <a href="#" class="group p-8 bg-base-100 rounded-box shadow-sm border border-base-200 hover:shadow-lg transition-all block">
+    <div class="w-12 h-12 bg-accent/10 rounded-lg flex items-center justify-center mb-4 group-hover:bg-accent/20 transition">
+      <span class="hero-calendar w-6 h-6 text-accent"></span>
+    </div>
+    <h3 class="text-xl font-semibold text-base-content mb-2">Meal Planning</h3>
+    <p class="text-base-content/70">Plan your meals for the week and stay organized</p>
+  </a>
+
+  <a href="#" class="group p-8 bg-base-100 rounded-box shadow-sm border border-base-200 hover:shadow-lg transition-all block">
+    <div class="w-12 h-12 bg-secondary/10 rounded-lg flex items-center justify-center mb-4 group-hover:bg-secondary/20 transition">
+      <span class="hero-book-open w-6 h-6 text-secondary"></span>
+    </div>
+    <h3 class="text-xl font-semibold text-base-content mb-2">Recipes</h3>
+    <p class="text-base-content/70">Browse your collection and discover new meals</p>
+  </a>
+
+  <a href="#" class="group p-8 bg-base-100 rounded-box shadow-sm border border-base-200 hover:shadow-lg transition-all block">
+    <div class="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center mb-4 group-hover:bg-warning/20 transition">
+      <span class="hero-shopping-cart w-6 h-6 text-warning"></span>
+    </div>
+    <h3 class="text-xl font-semibold text-base-content mb-2">Shopping Lists</h3>
+    <p class="text-base-content/70">Build lists from your meal plan and pantry gaps</p>
+  </a>
+</div>
+</body>
+</html>

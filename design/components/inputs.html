@@ -1,0 +1,63 @@
+<!-- @dsCard group="Forms" name="Inputs" subtitle="Text / error / select / textarea / checkbox — CoreComponents.input/1" -->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inputs</title>
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body class="bg-base-200 min-h-screen p-8">
+<select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
+  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+</select>
+
+<div class="max-w-md mx-auto bg-base-100 rounded-2xl border border-base-200 shadow-sm p-8">
+  <div class="fieldset mb-2">
+    <label>
+      <span class="label mb-1 text-base-content font-medium">Item name</span>
+      <input type="text" class="w-full input" value="Basmati rice" placeholder="e.g. Basmati rice">
+    </label>
+  </div>
+
+  <div class="fieldset mb-2">
+    <label>
+      <span class="label mb-1 text-base-content font-medium">Email</span>
+      <input type="email" class="w-full input input-error" value="not-an-email">
+    </label>
+    <p class="mt-1.5 flex gap-2 items-center text-sm text-error">
+      <span class="hero-exclamation-circle size-5"></span>
+      must have the @ sign and no spaces
+    </p>
+  </div>
+
+  <div class="fieldset mb-2">
+    <label>
+      <span class="label mb-1 text-base-content font-medium">Category</span>
+      <select class="w-full select">
+        <option value="">Choose a category</option>
+        <option selected>Pantry</option>
+        <option>Fridge</option>
+        <option>Freezer</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="fieldset mb-2">
+    <label>
+      <span class="label mb-1 text-base-content font-medium">Notes</span>
+      <textarea class="w-full textarea" rows="3" placeholder="Optional notes…">Buy the 5kg bag when on offer.</textarea>
+    </label>
+  </div>
+
+  <div class="fieldset mb-2">
+    <label>
+      <span class="label">
+        <input type="checkbox" class="checkbox checkbox-sm" checked>
+        Add to shopping list when low
+      </span>
+    </label>
+  </div>
+</div>
+</body>
+</html>

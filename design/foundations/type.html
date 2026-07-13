@@ -1,0 +1,44 @@
+<!-- @dsCard group="Foundations" name="Typography" subtitle="Heading scale and text emphasis as used in the app" -->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Typography</title>
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body class="bg-base-200 min-h-screen p-8">
+<select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
+  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+</select>
+
+<div class="max-w-3xl mx-auto bg-base-100 rounded-2xl border border-base-200 shadow-sm p-8 space-y-6">
+  <div>
+    <h1 class="text-4xl font-bold text-base-content">Page title</h1>
+    <p class="text-xs text-base-content/40 mt-1">text-4xl font-bold — page_header</p>
+  </div>
+  <div>
+    <h2 class="text-2xl font-bold text-base-content">Stat value</h2>
+    <p class="text-xs text-base-content/40 mt-1">text-2xl font-bold — stat_card value</p>
+  </div>
+  <div>
+    <h3 class="text-xl font-semibold text-base-content">Card title</h3>
+    <p class="text-xs text-base-content/40 mt-1">text-xl font-semibold — nav_card</p>
+  </div>
+  <div>
+    <h4 class="text-lg font-semibold text-base-content">Section title</h4>
+    <p class="text-xs text-base-content/40 mt-1">text-lg font-semibold — section, header, item_card</p>
+  </div>
+  <div>
+    <p class="text-lg text-base-content/70">Page description — text-lg, 70% emphasis</p>
+    <p class="text-base text-base-content">Body text — text-base, full emphasis</p>
+    <p class="text-sm text-base-content/70">Supporting text — text-sm, 70% emphasis</p>
+    <p class="text-sm text-base-content/60">Metadata — text-sm, 60% emphasis</p>
+    <p class="text-xs text-base-content/50">Fine print — text-xs, 50% emphasis</p>
+  </div>
+  <div>
+    <p class="text-sm text-error flex gap-2 items-center"><span class="hero-exclamation-circle size-5"></span>Error message — text-sm text-error</p>
+  </div>
+</div>
+</body>
+</html>

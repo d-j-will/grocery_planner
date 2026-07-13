@@ -1,0 +1,35 @@
+<!-- @dsCard group="Feedback" name="Empty states" subtitle="With description / with action — UIComponents.empty_state/1" -->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Empty states</title>
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body class="bg-base-200 min-h-screen p-8">
+<select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
+  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+</select>
+
+<div class="max-w-3xl mx-auto grid sm:grid-cols-2 gap-6">
+  <div class="bg-base-100 rounded-2xl border border-base-200 shadow-sm">
+    <div class="text-center py-16">
+      <span class="hero-book-open w-16 h-16 text-base-content/20 mx-auto mb-4 block"></span>
+      <p class="text-base-content/50 font-medium">No recipes yet</p>
+      <p class="text-base-content/30 text-sm mt-1">Click 'New Recipe' to add your first recipe</p>
+    </div>
+  </div>
+
+  <div class="bg-base-100 rounded-2xl border border-base-200 shadow-sm">
+    <div class="text-center py-16">
+      <span class="hero-shopping-cart w-16 h-16 text-base-content/20 mx-auto mb-4 block"></span>
+      <p class="text-base-content/50 font-medium">No shopping lists</p>
+      <div>
+        <button class="btn btn-primary mt-4">Create List</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

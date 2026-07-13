@@ -1,0 +1,54 @@
+<!-- @dsCard group="Cards" name="Item cards" subtitle="Recipe/inventory cards with placeholder and footer — UIComponents.item_card/1" -->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Item cards</title>
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body class="bg-base-200 min-h-screen p-8">
+<select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
+  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+</select>
+
+<div class="max-w-4xl mx-auto grid sm:grid-cols-2 gap-6">
+  <div class="bg-base-100 rounded-box shadow-sm border border-base-200 overflow-hidden transition hover:shadow-md cursor-pointer">
+    <div class="h-48 bg-secondary/10 flex items-center justify-center">
+      <span class="hero-photo w-16 h-16 text-secondary/30"></span>
+    </div>
+    <div class="p-5">
+      <div class="flex items-start justify-between mb-2">
+        <h3 class="text-lg font-semibold text-base-content flex-1">Chicken Biryani</h3>
+        <div class="flex-shrink-0 ml-2">
+          <button class="text-warning">★</button>
+        </div>
+      </div>
+      <p class="text-sm text-base-content/60 mb-3 line-clamp-2">Fragrant basmati rice layered with spiced chicken thighs, saffron, and crispy onions.</p>
+      <div class="flex items-center gap-4 text-sm text-base-content/50">
+        <span>45 min</span>
+        <span>4 servings</span>
+        <span class="badge badge-warning">Medium</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-base-100 rounded-box shadow-sm border border-base-200 overflow-hidden transition hover:shadow-md cursor-pointer">
+    <div class="h-48 bg-secondary/10 flex items-center justify-center">
+      <span class="hero-photo w-16 h-16 text-secondary/30"></span>
+    </div>
+    <div class="p-5">
+      <div class="flex items-start justify-between mb-2">
+        <h3 class="text-lg font-semibold text-base-content flex-1">Weeknight Pasta</h3>
+      </div>
+      <p class="text-sm text-base-content/60 mb-3 line-clamp-2">Quick tomato and basil pasta from pantry staples.</p>
+      <div class="flex items-center gap-4 text-sm text-base-content/50">
+        <span>20 min</span>
+        <span>2 servings</span>
+        <span class="badge badge-success">Easy</span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

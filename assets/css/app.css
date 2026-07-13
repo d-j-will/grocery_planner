@@ -5,6 +5,9 @@
 @source "../css";
 @source "../js";
 @source "../../lib/grocery_planner_web";
+/* Design-system preview bundle (design/README.md) — keeps preview-only classes
+   and UIComponents' interpolated classes (bg-#{color}/10 …) in the build. */
+@source "../../design";
 
 /* A Tailwind plugin that makes "hero-#{ICON}" classes available. */
 @plugin "../vendor/heroicons";

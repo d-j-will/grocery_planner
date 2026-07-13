@@ -1,0 +1,42 @@
+<!-- @dsCard group="Feedback" name="Flash alerts" subtitle="Info / error — CoreComponents.flash/1 (toast positioning removed for preview)" -->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flash alerts</title>
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body class="bg-base-200 min-h-screen p-8">
+<select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
+  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+</select>
+
+<!-- In the app these sit inside `toast toast-top toast-end z-50`; rendered in flow here so both are visible -->
+<div class="max-w-md mx-auto space-y-4 pt-8">
+  <div role="alert" class="alert w-80 sm:w-96 max-w-80 sm:max-w-96 text-wrap alert-info">
+    <span class="hero-information-circle size-5 shrink-0"></span>
+    <div>
+      <p class="font-semibold">Success!</p>
+      <p>Recipe saved to your collection.</p>
+    </div>
+    <div class="flex-1"></div>
+    <button type="button" class="group self-start cursor-pointer" aria-label="close">
+      <span class="hero-x-mark size-5 opacity-40 group-hover:opacity-70"></span>
+    </button>
+  </div>
+
+  <div role="alert" class="alert w-80 sm:w-96 max-w-80 sm:max-w-96 text-wrap alert-error">
+    <span class="hero-exclamation-circle size-5 shrink-0"></span>
+    <div>
+      <p class="font-semibold">Something went wrong</p>
+      <p>We couldn't reach the recipe service. Try again shortly.</p>
+    </div>
+    <div class="flex-1"></div>
+    <button type="button" class="group self-start cursor-pointer" aria-label="close">
+      <span class="hero-x-mark size-5 opacity-40 group-hover:opacity-70"></span>
+    </button>
+  </div>
+</div>
+</body>
+</html>

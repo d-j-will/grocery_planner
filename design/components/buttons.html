@@ -1,0 +1,48 @@
+<!-- @dsCard group="Actions" name="Buttons" subtitle="Primary / soft default / sizes / states — CoreComponents.button/1" -->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buttons</title>
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body class="bg-base-200 min-h-screen p-8">
+<select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
+  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+</select>
+
+<div class="max-w-3xl mx-auto bg-base-100 rounded-2xl border border-base-200 shadow-sm p-8 space-y-8">
+  <div>
+    <h2 class="text-lg font-semibold text-base-content mb-4">Variants</h2>
+    <div class="flex flex-wrap items-center gap-3">
+      <button class="btn btn-primary">Primary</button>
+      <button class="btn btn-primary btn-soft">Default (soft)</button>
+      <button class="btn btn-secondary">Secondary</button>
+      <button class="btn btn-error">Destructive</button>
+      <button class="btn btn-ghost">Ghost</button>
+      <button class="btn btn-primary" disabled>Disabled</button>
+    </div>
+  </div>
+
+  <div>
+    <h2 class="text-lg font-semibold text-base-content mb-4">Sizes</h2>
+    <div class="flex flex-wrap items-center gap-3">
+      <button class="btn btn-primary btn-xs">Tiny</button>
+      <button class="btn btn-primary btn-sm">Small</button>
+      <button class="btn btn-primary">Base</button>
+      <button class="btn btn-primary btn-lg">Large</button>
+    </div>
+  </div>
+
+  <div>
+    <h2 class="text-lg font-semibold text-base-content mb-4">With icon / busy</h2>
+    <div class="flex flex-wrap items-center gap-3">
+      <button class="btn btn-primary"><span class="hero-plus size-5"></span>New recipe</button>
+      <button class="btn btn-sm btn-error"><span class="hero-trash size-4"></span>Remove</button>
+      <button class="btn btn-primary"><span class="loading loading-spinner loading-sm"></span>Saving…</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>
