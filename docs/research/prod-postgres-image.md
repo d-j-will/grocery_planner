@@ -69,9 +69,12 @@ AshPostgres itself documents official support for **PostgreSQL 14+** (`deps/ash_
 
 ## 3. External facts (Docker Hub / postgresql.org / pgvector upstream)
 
-*(Researched against primary sources on 2026-07-13; see per-claim sources.)*
+*(Researched against primary sources on 2026-07-13.)*
 
-<!-- WEB-FINDINGS -->
+- **PostgreSQL 18 is stable GA**: first released 2025-09-25, current minor **18.4**, supported until 2030-11-14. Source: https://www.postgresql.org/support/versioning/
+- **`pgvector/pgvector:pg18` exists and is current**: the Docker Hub registry API (https://hub.docker.com/v2/repositories/pgvector/pgvector/tags/) lists `pg18`, `0.8.5-pg18`, `pg18-bookworm`, and `pg18-trixie` (plus pg13–pg17 equivalents), all pushed 2026-07-08, all multi-arch **amd64 + arm64** — the Debian x86 homelab host is covered. Current pgvector release in these images: **0.8.5**.
+- **pgvector 0.8.x supports PG18**: the pg18 images are published by the pgvector project itself (https://hub.docker.com/r/pgvector/pgvector, source: https://github.com/pgvector/pgvector), which is primary evidence of support.
+- **ash_postgres documented minimum**: PostgreSQL **14+** ("AshPostgres officially supports only postgresql version 14 or higher" — upgrading-to-2.0 guide, hexdocs.pm/ash_postgres; verified in the locked dep at `deps/ash_postgres/documentation/topics/development/upgrading-to-2.0.md`).
 
 ## 4. Consequences for docker-compose.prod.yml (feeds ticket grocery_planner-tdu.4)
 
