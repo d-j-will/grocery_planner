@@ -879,10 +879,16 @@ defmodule GroceryPlannerWeb.MealPlannerLive.FocusLayout do
     target_date = socket.assigns.selected_day
     source_date = Date.add(target_date, -1)
 
-    source_meals =
-      socket.assigns.week_meals
-      |> Map.get(source_date, %{})
-      |> Map.values()
+    # Query the DB rather than the week_meals cache: when target_date is the
+    # first day of the displayed week (every Monday), yesterday belongs to the
+    # previous week and is not in the cache at all.
+    {:ok, source_meals} =
+      GroceryPlanner.MealPlanning.list_meal_plans_by_date_range(
+        source_date,
+        Date.add(source_date, 1),
+        actor: socket.assigns.current_user,
+        tenant: socket.assigns.current_account.id
+      )
 
     if Enum.empty?(source_meals) do
       {:noreply, put_flash(socket, :info, "No meals found on previous day.")}
