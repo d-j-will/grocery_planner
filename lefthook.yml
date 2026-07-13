@@ -1,0 +1,43 @@
+# Lefthook is the single owner of .git/hooks; beads (bd) sync runs through it.
+# NEVER run `bd hooks install` here — it seizes core.hooksPath and silently
+# disables Lefthook. `bd bootstrap` and `bd dolt remote add` can also re-seize;
+# after running either, check `git config --local core.hooksPath` is empty and
+# re-run `lefthook install --reset-hooks-path` if not.
+#
+# Fresh clone bootstrap:
+#   lefthook install --reset-hooks-path && bd bootstrap --yes
+#
+# `piped: true` runs commands in FILE ORDER and stops on first failure (default
+# is alphabetical + parallel). Any future test/format gate goes ABOVE the beads
+# command so a red gate aborts before the Dolt sync fires.
+
+pre-commit:
+  piped: true
+  commands:
+    beads-export:
+      run: command -v bd >/dev/null 2>&1 || exit 0; BD_GIT_HOOK=1 bd hooks run pre-commit
+
+prepare-commit-msg:
+  commands:
+    beads-msg:
+      run: command -v bd >/dev/null 2>&1 || exit 0; BD_GIT_HOOK=1 bd hooks run prepare-commit-msg {1} || true
+
+pre-push:
+  piped: true
+  # beads-dolt-push lives in .lefthook/pre-push/ as a SCRIPT, not a command:
+  # commands are filtered by {push_files} (git diff HEAD @{push}) and silently
+  # skip when that diff is empty (tag pushes, issue-only changes) — exactly
+  # when the Dolt push must still fire. Scripts run unconditionally.
+  scripts:
+    "beads-dolt-push":
+      runner: sh
+
+post-merge:
+  commands:
+    beads-dolt-pull:
+      run: command -v bd >/dev/null 2>&1 || exit 0; bd dolt pull
+
+post-checkout:
+  commands:
+    beads-dolt-pull:
+      run: command -v bd >/dev/null 2>&1 || exit 0; bd dolt pull

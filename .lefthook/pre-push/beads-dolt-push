@@ -1,0 +1,7 @@
+#!/bin/sh
+# Push beads issue data (Dolt) alongside every git push.
+# A lefthook SCRIPT, not a command: commands are filtered by {push_files}
+# (git diff HEAD @{push}) and silently skip when that diff is empty — e.g.
+# tag pushes or issue-only changes — which is exactly when this must not skip.
+command -v bd >/dev/null 2>&1 || exit 0
+bd dolt push
