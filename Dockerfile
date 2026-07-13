@@ -66,7 +66,9 @@ RUN mix release
 # the compiled release and other runtime necessities
 FROM ${RUNNER_IMAGE}
 
-RUN apt-get update -y && apt-get install -y libstdc++6 openssl libncurses5 locales \
+# curl is required by the compose healthcheck (GET /health_check) — see
+# docker-compose.prod.yml. Keep it in the runtime deps, not just the builder.
+RUN apt-get update -y && apt-get install -y libstdc++6 openssl libncurses5 locales curl \
   && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
 # Set the locale

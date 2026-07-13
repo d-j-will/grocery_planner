@@ -82,3 +82,10 @@ python_service/tests/*.RAW-01.COVER.jpg
 .dolt/
 *.db
 .beads-credential-key
+
+# Environment secrets — the deploy runbook has operators create a filled .env
+# on the host (docker-compose.prod.yml reads it); never commit one. The
+# *.example templates stay tracked.
+.env
+.env.*
+!.env*.example

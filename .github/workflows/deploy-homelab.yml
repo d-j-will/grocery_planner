@@ -1,0 +1,139 @@
+name: Deploy (homelab)
+
+# Slackex-pattern deploy: build the app + AI sidecar images to GHCR, then join
+# the tailnet and SSH to the homelab Docker host to pull/migrate/recreate.
+#
+# Gated on CI success via workflow_run — which only fires for the *default
+# branch*, so this activates (and the first real deploy happens) the moment the
+# workflow lands on main. See org-brain: homelab-ci-tailnet-before-ssh.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: ["main"]
+    types: [completed]
+
+concurrency:
+  group: deploy-homelab
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build & push images to GHCR
+    # Only proceed when CI passed. A failed/cancelled CI run never deploys.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      owner_lc: ${{ steps.vars.outputs.owner_lc }}
+      sha: ${{ steps.vars.outputs.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Build the exact commit that passed CI, not the branch tip.
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Compute image namespace + tag
+        id: vars
+        run: |
+          # GHCR requires a lowercase owner; ${{ github.repository_owner }} is
+          # the single source of truth for the namespace (must equal IMAGE_OWNER
+          # in the host .env). No hardcoded owner anywhere.
+          echo "owner_lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push app image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ steps.vars.outputs.owner_lc }}/grocery_planner:latest
+            ghcr.io/${{ steps.vars.outputs.owner_lc }}/grocery_planner:${{ steps.vars.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push AI sidecar image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ./python_service
+          file: ./python_service/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ steps.vars.outputs.owner_lc }}/grocery_planner-ai:latest
+            ghcr.io/${{ steps.vars.outputs.owner_lc }}/grocery_planner-ai:${{ steps.vars.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to homelab
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # Job-level env so the guard can read secrets — the `secrets` context is NOT
+    # allowed in a step-level `if:` (parse-time failure). Gate on both creds so a
+    # partly-provisioned repo stays build-only/green and self-arms once the last
+    # secret lands. See org-brain: homelab-ci-tailnet-before-ssh.
+    env:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+    steps:
+      - name: Guard — both deploy credentials present?
+        id: guard
+        run: |
+          if [ -n "$TAILSCALE_AUTHKEY" ] && [ -n "$DEPLOY_SSH_KEY" ]; then
+            echo "armed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "armed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploy secrets not fully provisioned — build succeeded, skipping deploy."
+          fi
+
+      - name: Join the tailnet
+        if: steps.guard.outputs.armed == 'true'
+        uses: tailscale/github-action@6cae46e2d796f265265cfcf628b72a32b4d7cade # v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          # tag:ci must be permitted by the authkey (creator in tagOwners) AND an
+          # ACL rule must route tag:ci → the host, or the SSH below times out.
+          tags: tag:ci
+
+      - name: Install deploy SSH key
+        if: steps.guard.outputs.armed == 'true'
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Pull, migrate, recreate over SSH
+        if: steps.guard.outputs.armed == 'true'
+        env:
+          # Reuse the run's token (it just pushed the images, so it can pull).
+          # Piped over SSH stdin → --password-stdin so it never lands in argv.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh \
+            -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=accept-new \
+            -o BatchMode=yes \
+            root@"$DEPLOY_HOST" \
+            "docker login ghcr.io -u '$GHCR_ACTOR' --password-stdin \
+             && cd /root/grocery_planner \
+             && docker compose -f docker-compose.prod.yml pull \
+             && docker compose -f docker-compose.prod.yml run --rm -T app \
+                  /app/bin/grocery_planner eval 'GroceryPlanner.Release.migrate()' \
+             && docker compose -f docker-compose.prod.yml up -d --remove-orphans"

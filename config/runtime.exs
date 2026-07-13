@@ -68,6 +68,10 @@ if config_env() == :prod do
 
   config :grocery_planner, GroceryPlannerWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
+    # LiveView/Channels WebSocket Origin check. Behind Cloudflare the browser
+    # sends Origin: https://<PHX_HOST>; bind the allow-list to it explicitly so
+    # the socket upgrade isn't rejected. (tdu.2 deferred check_origin to tdu.6.)
+    check_origin: ["https://#{host}"],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
