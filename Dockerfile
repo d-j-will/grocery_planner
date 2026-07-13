@@ -11,9 +11,17 @@
 #   - https://pkgs.org/ - resource for finding needed packages
 #   - Ex: hexpm/elixir:1.15.7-erlang-26.1.2-debian-bullseye-20230612-slim
 #
-ARG ELIXIR_VERSION=1.15.7
-ARG OTP_VERSION=26.1.2
-ARG DEBIAN_VERSION=bullseye-20230612-slim
+# SINGLE SOURCE OF TRUTH for the language versions is /.tool-versions (mise).
+# The deploy workflow extracts elixir/erlang from it and passes --build-arg, so
+# CI/prod builds always match local dev + CI's setup-beam. These defaults are the
+# fallback for a plain `docker build` and MUST equal .tool-versions.
+# (Building on an older Elixir than CI silently breaks deps using newer stdlib —
+# e.g. langchain needs get_in/1, Elixir 1.17+; that's why this must not drift.)
+# DEBIAN_VERSION is a base-image detail (not a language version) so it lives here,
+# not in .tool-versions. hexpm ships this combo on bookworm+ only.
+ARG ELIXIR_VERSION=1.20.2
+ARG OTP_VERSION=28.5.0.3
+ARG DEBIAN_VERSION=bookworm-20260623-slim
 
 ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
 ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"

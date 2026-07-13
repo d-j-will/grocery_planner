@@ -29,6 +29,8 @@ jobs:
     outputs:
       owner_lc: ${{ steps.vars.outputs.owner_lc }}
       sha: ${{ steps.vars.outputs.sha }}
+      elixir: ${{ steps.vars.outputs.elixir }}
+      otp: ${{ steps.vars.outputs.otp }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -37,12 +39,18 @@ jobs:
 
       - name: Compute image namespace + tag
         id: vars
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           # GHCR requires a lowercase owner; ${{ github.repository_owner }} is
           # the single source of truth for the namespace (must equal IMAGE_OWNER
           # in the host .env). No hardcoded owner anywhere.
           echo "owner_lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-          echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          # Single-source the toolchain from /.tool-versions (mise) so the release
+          # image builds on the same Elixir/OTP as CI + local dev.
+          echo "elixir=$(sed -n 's/^elixir \([0-9.]*\)-otp.*/\1/p' .tool-versions)" >> "$GITHUB_OUTPUT"
+          echo "otp=$(sed -n 's/^erlang \(.*\)$/\1/p' .tool-versions)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -60,6 +68,12 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
+          # Toolchain versions come from /.tool-versions (see the vars step) so the
+          # release image never drifts from CI/local. DEBIAN_VERSION stays the
+          # Dockerfile default (a base-image detail, not a language version).
+          build-args: |
+            ELIXIR_VERSION=${{ steps.vars.outputs.elixir }}
+            OTP_VERSION=${{ steps.vars.outputs.otp }}
           tags: |
             ghcr.io/${{ steps.vars.outputs.owner_lc }}/grocery_planner:latest
             ghcr.io/${{ steps.vars.outputs.owner_lc }}/grocery_planner:${{ steps.vars.outputs.sha }}
