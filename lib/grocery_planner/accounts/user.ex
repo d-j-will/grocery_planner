@@ -119,18 +119,10 @@ defmodule GroceryPlanner.Accounts.User do
 
   validations do
     validate one_of(:theme, [
-               "light",
-               "dark",
-               "cupcake",
-               "bumblebee",
-               "synthwave",
-               "retro",
-               "cyberpunk",
-               "dracula",
-               "nord",
-               "sunset",
-               "business",
-               "luxury"
+               "fairway",
+               "orchard",
+               "marble",
+               "dark"
              ])
   end
 
@@ -155,7 +147,7 @@ defmodule GroceryPlanner.Accounts.User do
 
     attribute :theme, :string do
       allow_nil? false
-      default "light"
+      default "fairway"
       public? true
     end
 

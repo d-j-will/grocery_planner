@@ -1,40 +1,46 @@
-<!-- @dsCard group="Foundations" name="Typography" subtitle="Heading scale and text emphasis as used in the app" -->
+<!-- @dsCard group="Foundations" name="Typography" subtitle="Instrument Serif display + Inter UI — Skillet type system" -->
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="fairway">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Typography</title>
 <link rel="stylesheet" href="../assets/app.css">
+<link rel="stylesheet" href="../styles.css">
 </head>
 <body class="bg-base-200 min-h-screen p-8">
 <select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
-  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+  <option>fairway</option><option>orchard</option><option>marble</option><option>dark</option>
 </select>
 
-<div class="max-w-3xl mx-auto bg-base-100 rounded-2xl border border-base-200 shadow-sm p-8 space-y-6">
+<div class="max-w-3xl mx-auto sk-card p-8 space-y-6">
   <div>
-    <h1 class="text-4xl font-bold text-base-content">Page title</h1>
-    <p class="text-xs text-base-content/40 mt-1">text-4xl font-bold — page_header</p>
+    <h1 class="font-display text-5xl text-base-content">What's for <em>dinner</em>?</h1>
+    <p class="text-xs text-base-content/40 mt-2">font-display text-5xl — Instrument Serif, hero / page title. Italic for emphasis.</p>
   </div>
   <div>
-    <h2 class="text-2xl font-bold text-base-content">Stat value</h2>
-    <p class="text-xs text-base-content/40 mt-1">text-2xl font-bold — stat_card value</p>
+    <h2 class="font-display text-3xl text-base-content">Expiring soon</h2>
+    <p class="text-xs text-base-content/40 mt-1">font-display text-3xl — section title</p>
   </div>
   <div>
-    <h3 class="text-xl font-semibold text-base-content">Card title</h3>
-    <p class="text-xs text-base-content/40 mt-1">text-xl font-semibold — nav_card</p>
+    <h3 class="font-display text-2xl text-base-content">Card title</h3>
+    <p class="text-xs text-base-content/40 mt-1">font-display text-2xl — card / group heading</p>
   </div>
   <div>
-    <h4 class="text-lg font-semibold text-base-content">Section title</h4>
-    <p class="text-xs text-base-content/40 mt-1">text-lg font-semibold — section, header, item_card</p>
+    <h4 class="text-lg font-semibold text-base-content tracking-tight">UI heading</h4>
+    <p class="text-xs text-base-content/40 mt-1">Inter text-lg font-semibold — toolbar titles, item names</p>
   </div>
   <div>
     <p class="text-lg text-base-content/70">Page description — text-lg, 70% emphasis</p>
-    <p class="text-base text-base-content">Body text — text-base, full emphasis</p>
-    <p class="text-sm text-base-content/70">Supporting text — text-sm, 70% emphasis</p>
-    <p class="text-sm text-base-content/60">Metadata — text-sm, 60% emphasis</p>
+    <p class="text-base text-base-content">Body text — Inter text-base, full emphasis</p>
+    <p class="text-sm" style="color: var(--color-ink-soft)">Supporting text — text-sm, ink-soft</p>
+    <p class="text-sm" style="color: var(--color-ink-muted)">Metadata — text-sm, ink-muted</p>
     <p class="text-xs text-base-content/50">Fine print — text-xs, 50% emphasis</p>
+  </div>
+  <div class="flex flex-wrap gap-2 items-center">
+    <span class="sk-tag">Pantry staple</span>
+    <span class="sk-tag" style="background: var(--color-accent-soft)">Expiring</span>
+    <p class="text-xs text-base-content/40 w-full mt-1">sk-tag — chip label, Inter 12px medium</p>
   </div>
   <div>
     <p class="text-sm text-error flex gap-2 items-center"><span class="hero-exclamation-circle size-5"></span>Error message — text-sm text-error</p>

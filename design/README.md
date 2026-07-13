@@ -24,12 +24,13 @@ family from the app:
 | `components/nav-cards.html` | `UIComponents.nav_card/1` |
 | `components/item-cards.html` | `UIComponents.item_card/1` |
 | `components/skeletons.html` | `Components.Skeletons` |
-| `foundations/*.html` | daisyUI theme tokens + type scale as used in the app |
+| `foundations/*.html` | Skillet theme tokens + type ramp |
+| `styles.css` | Skillet token layer as authored in Claude Design (ported into `assets/css/app.css` as `daisyui-theme` blocks — keep both in sync) |
 
 `assets/app.css` is the **compiled** production stylesheet (`mix assets.build`
 output copied from `priv/static/assets/css/app.css`). Previews therefore render
-pixel-identical to the app, across all 12 daisyUI themes (switcher top-right of
-every card).
+pixel-identical to the app, across the 4 Skillet themes — fairway (default),
+orchard, marble, dark (switcher top-right of every card).
 
 ## Round-trip workflow
 

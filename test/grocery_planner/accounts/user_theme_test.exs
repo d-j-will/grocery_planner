@@ -4,11 +4,8 @@ defmodule GroceryPlanner.Accounts.UserThemeTest do
   alias GroceryPlanner.Accounts.User
 
   describe "theme validation" do
-    test "accepts all valid daisyUI themes" do
-      valid_themes = ~w[
-        light dark cupcake bumblebee synthwave retro
-        cyberpunk dracula nord sunset business luxury
-      ]
+    test "accepts all valid Skillet themes" do
+      valid_themes = ~w[fairway orchard marble dark]
 
       for theme <- valid_themes do
         {:ok, user} =
@@ -31,8 +28,11 @@ defmodule GroceryPlanner.Accounts.UserThemeTest do
           "password123password123"
         )
 
-      # Test with old "progressive" theme (should be invalid now)
-      assert {:error, error} = User.update(user, %{theme: "progressive"}, actor: user)
+      # Retired stock daisyUI themes are no longer valid
+      assert {:error, error} = User.update(user, %{theme: "synthwave"}, actor: user)
+      assert error.errors |> Enum.any?(fn e -> e.field == :theme end)
+
+      assert {:error, error} = User.update(user, %{theme: "light"}, actor: user)
       assert error.errors |> Enum.any?(fn e -> e.field == :theme end)
 
       # Test with random invalid theme
@@ -40,7 +40,7 @@ defmodule GroceryPlanner.Accounts.UserThemeTest do
       assert error.errors |> Enum.any?(fn e -> e.field == :theme end)
     end
 
-    test "defaults to light theme for new users" do
+    test "defaults to fairway theme for new users" do
       {:ok, user} =
         User.create(
           "newuser@example.com",
@@ -48,7 +48,7 @@ defmodule GroceryPlanner.Accounts.UserThemeTest do
           "password123password123"
         )
 
-      assert user.theme == "light"
+      assert user.theme == "fairway"
     end
 
     test "allows updating theme after user creation" do
@@ -59,10 +59,10 @@ defmodule GroceryPlanner.Accounts.UserThemeTest do
           "password123password123"
         )
 
-      assert user.theme == "light"
+      assert user.theme == "fairway"
 
-      {:ok, updated} = User.update(user, %{theme: "cyberpunk"}, actor: user)
-      assert updated.theme == "cyberpunk"
+      {:ok, updated} = User.update(user, %{theme: "marble"}, actor: user)
+      assert updated.theme == "marble"
     end
   end
 end

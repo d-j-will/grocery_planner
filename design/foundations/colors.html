@@ -1,57 +1,68 @@
-<!-- @dsCard group="Foundations" name="Color tokens" subtitle="daisyUI semantic colors across 12 themes" -->
+<!-- @dsCard group="Foundations" name="Color tokens" subtitle="Skillet palette — fairway / orchard / marble + shared dark" -->
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="fairway">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Color tokens</title>
 <link rel="stylesheet" href="../assets/app.css">
+<link rel="stylesheet" href="../styles.css">
 </head>
 <body class="bg-base-200 min-h-screen p-8">
 <select class="select select-xs fixed top-2 right-2 w-32 z-50 opacity-60 hover:opacity-100" aria-label="Theme" onchange="document.documentElement.dataset.theme=this.value">
-  <option>light</option><option>dark</option><option>cupcake</option><option>bumblebee</option><option>synthwave</option><option>retro</option><option>cyberpunk</option><option>dracula</option><option>nord</option><option>sunset</option><option>business</option><option>luxury</option>
+  <option>fairway</option><option>orchard</option><option>marble</option><option>dark</option>
 </select>
 
 <div class="max-w-3xl mx-auto space-y-8">
   <div>
-    <h2 class="text-lg font-semibold text-base-content mb-4">Brand</h2>
+    <h2 class="font-display text-2xl text-base-content mb-4">Brand</h2>
     <div class="grid grid-cols-3 gap-4">
-      <div class="rounded-xl bg-primary text-primary-content p-4"><p class="font-semibold">primary</p><p class="text-sm opacity-70">primary-content</p></div>
-      <div class="rounded-xl bg-secondary text-secondary-content p-4"><p class="font-semibold">secondary</p><p class="text-sm opacity-70">secondary-content</p></div>
-      <div class="rounded-xl bg-accent text-accent-content p-4"><p class="font-semibold">accent</p><p class="text-sm opacity-70">accent-content</p></div>
+      <div class="rounded-xl bg-primary text-primary-content p-4"><p class="font-semibold">primary</p><p class="text-sm opacity-70">forest / theme lead</p></div>
+      <div class="rounded-xl bg-secondary text-secondary-content p-4"><p class="font-semibold">secondary</p><p class="text-sm opacity-70">terracotta accent</p></div>
+      <div class="rounded-xl bg-accent text-accent-content p-4"><p class="font-semibold">accent</p><p class="text-sm opacity-70">fresh green</p></div>
     </div>
   </div>
 
   <div>
-    <h2 class="text-lg font-semibold text-base-content mb-4">State</h2>
+    <h2 class="font-display text-2xl text-base-content mb-4">State</h2>
     <div class="grid grid-cols-4 gap-4">
-      <div class="rounded-xl bg-info text-info-content p-4"><p class="font-semibold">info</p></div>
-      <div class="rounded-xl bg-success text-success-content p-4"><p class="font-semibold">success</p></div>
-      <div class="rounded-xl bg-warning text-warning-content p-4"><p class="font-semibold">warning</p></div>
+      <div class="rounded-xl bg-info text-info-content p-4"><p class="font-semibold">info</p><p class="text-xs opacity-70">frozen / cool</p></div>
+      <div class="rounded-xl bg-success text-success-content p-4"><p class="font-semibold">success</p><p class="text-xs opacity-70">fresh</p></div>
+      <div class="rounded-xl bg-warning text-warning-content p-4"><p class="font-semibold">warning</p><p class="text-xs opacity-70">expiring</p></div>
       <div class="rounded-xl bg-error text-error-content p-4"><p class="font-semibold">error</p></div>
     </div>
   </div>
 
   <div>
-    <h2 class="text-lg font-semibold text-base-content mb-4">Surfaces</h2>
+    <h2 class="font-display text-2xl text-base-content mb-4">Surfaces</h2>
     <div class="grid grid-cols-4 gap-4">
-      <div class="rounded-xl bg-base-100 border border-base-300 p-4"><p class="font-semibold text-base-content">base-100</p></div>
-      <div class="rounded-xl bg-base-200 border border-base-300 p-4"><p class="font-semibold text-base-content">base-200</p></div>
-      <div class="rounded-xl bg-base-300 p-4"><p class="font-semibold text-base-content">base-300</p></div>
-      <div class="rounded-xl bg-neutral text-neutral-content p-4"><p class="font-semibold">neutral</p></div>
+      <div class="rounded-xl bg-base-100 border border-base-300 p-4"><p class="font-semibold text-base-content">base-100</p><p class="text-xs text-base-content/60">surface</p></div>
+      <div class="rounded-xl bg-base-200 border border-base-300 p-4"><p class="font-semibold text-base-content">base-200</p><p class="text-xs text-base-content/60">bg — paper</p></div>
+      <div class="rounded-xl bg-base-300 p-4"><p class="font-semibold text-base-content">base-300</p><p class="text-xs text-base-content/60">surfaceAlt</p></div>
+      <div class="rounded-xl bg-neutral text-neutral-content p-4"><p class="font-semibold">neutral</p><p class="text-xs opacity-70">ink</p></div>
     </div>
   </div>
 
   <div>
-    <h2 class="text-lg font-semibold text-base-content mb-4">Tints (as used by stat cards, nav cards, list items)</h2>
+    <h2 class="font-display text-2xl text-base-content mb-4">Ink &amp; hairlines</h2>
+    <div class="grid grid-cols-4 gap-4">
+      <div class="rounded-xl bg-base-100 border border-base-300 p-4"><p class="font-semibold" style="color: var(--color-ink-soft)">ink-soft</p><p class="text-xs text-base-content/60">secondary text</p></div>
+      <div class="rounded-xl bg-base-100 border border-base-300 p-4"><p class="font-semibold" style="color: var(--color-ink-muted)">ink-muted</p><p class="text-xs text-base-content/60">metadata</p></div>
+      <div class="rounded-xl p-4" style="background: var(--color-line)"><p class="font-semibold text-base-content">line</p><p class="text-xs text-base-content/60">hairline borders</p></div>
+      <div class="rounded-xl p-4" style="background: var(--color-tag)"><p class="font-semibold text-base-content">tag</p><p class="text-xs text-base-content/60">chips / pills</p></div>
+    </div>
+  </div>
+
+  <div>
+    <h2 class="font-display text-2xl text-base-content mb-4">Tints (stat cards, nav cards, list items)</h2>
     <div class="grid grid-cols-4 gap-4">
       <div class="rounded-xl bg-primary/10 p-4"><p class="font-semibold text-primary">primary/10</p></div>
       <div class="rounded-xl bg-secondary/10 p-4"><p class="font-semibold text-secondary">secondary/10</p></div>
       <div class="rounded-xl bg-accent/10 p-4"><p class="font-semibold text-accent">accent/10</p></div>
       <div class="rounded-xl bg-info/10 p-4"><p class="font-semibold text-info">info/10</p></div>
-      <div class="rounded-xl bg-success/10 p-4"><p class="font-semibold text-success">success/10</p></div>
       <div class="rounded-xl bg-warning/10 p-4"><p class="font-semibold text-warning">warning/10</p></div>
       <div class="rounded-xl bg-error/10 p-4"><p class="font-semibold text-error">error/10</p></div>
+      <div class="rounded-xl p-4" style="background: var(--color-accent-soft)"><p class="font-semibold text-base-content">accent-soft</p></div>
       <div class="rounded-xl bg-neutral/50 p-4"><p class="font-semibold text-neutral-content">neutral/50 (modal bg)</p></div>
     </div>
   </div>

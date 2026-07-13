@@ -220,7 +220,7 @@ defmodule GroceryPlannerWeb.UIComponents do
       @actions != [] && "flex items-start justify-between"
     ]}>
       <div class={@actions != [] && "flex-1"}>
-        <h1 class="text-4xl font-bold text-base-content">{@title}</h1>
+        <h1 class="font-display text-5xl text-base-content">{@title}</h1>
         <p :if={@description && @show_description} class="mt-2 text-lg text-base-content/70">
           {@description}
         </p>
@@ -274,7 +274,7 @@ defmodule GroceryPlannerWeb.UIComponents do
     ~H"""
     <div class={"bg-base-100 p-6 rounded-2xl shadow-sm border border-base-200 #{@class}"}>
       <div :if={@title || @header_actions != []} class="flex items-center justify-between mb-6">
-        <h3 :if={@title} class="text-lg font-semibold text-base-content">{@title}</h3>
+        <h3 :if={@title} class="font-display text-2xl text-base-content">{@title}</h3>
         <div :if={@header_actions != []} class="flex gap-2">
           {render_slot(@header_actions)}
         </div>
