@@ -23,8 +23,14 @@ WORKDIR /app
 # Copy requirements file (we will create this next)
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install -r requirements.txt
+# CPU-only torch. The homelab has NO GPU (hard constraint), but the default
+# PyPI torch wheel drags in ~1GB of CUDA/cuDNN that never runs here and bloats
+# the image (a real cost on the disk-constrained host). Install the CPU wheel
+# from the PyTorch CPU index FIRST; the subsequent `-r requirements.txt` then
+# sees torch already satisfied and resolves everything else from PyPI.
+# (CPU torch's manylinux_2_28 wheel needs glibc >= 2.28; bullseye has 2.31.)
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch \
+ && pip install -r requirements.txt
 
 # Copy the rest of the application code
 COPY . .
