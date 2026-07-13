@@ -28,36 +28,45 @@ defmodule GroceryPlanner.External.RecipeImporter do
 
   @doc """
   Imports a list of ingredients for a recipe, creating grocery items as needed.
+
+  Returns `:ok` when every ingredient was created, or `{:error, error}` for the
+  first ingredient that failed.
   """
   def import_ingredients(ingredients, recipe_id, account_id) do
     ingredients
     |> Enum.with_index(1)
-    |> Enum.each(fn {ingredient, index} ->
+    |> Enum.reduce_while(:ok, fn {ingredient, index}, :ok ->
+      {quantity, unit} = parse_measure(ingredient.measure)
+
       with {:ok, grocery_item} <- find_or_create_grocery_item(ingredient.name, account_id),
-           {quantity, unit} <- parse_measure(ingredient.measure) do
-        GroceryPlanner.Recipes.create_recipe_ingredient(
-          account_id,
-          %{
-            recipe_id: recipe_id,
-            grocery_item_id: grocery_item.id,
-            quantity: quantity,
-            unit: unit,
-            sort_order: index
-          },
-          authorize?: false,
-          tenant: account_id
-        )
+           {:ok, _recipe_ingredient} <-
+             GroceryPlanner.Recipes.create_recipe_ingredient(
+               account_id,
+               %{
+                 recipe_id: recipe_id,
+                 grocery_item_id: grocery_item.id,
+                 quantity: quantity,
+                 unit: unit,
+                 sort_order: index
+               },
+               authorize?: false,
+               tenant: account_id
+             ) do
+        {:cont, :ok}
+      else
+        {:error, error} -> {:halt, {:error, error}}
       end
     end)
-
-    :ok
   end
 
   @doc """
   Finds an existing grocery item by name (case-insensitive) or creates a new one.
   """
   def find_or_create_grocery_item(item_name, account_id) do
-    case GroceryPlanner.Inventory.list_grocery_items(tenant: account_id) do
+    # authorize?: false, not a nil actor: with no actor, relates_to_actor_via
+    # policies silently return [] and every import duplicates grocery items
+    # (see item_matcher.ex for the same convention).
+    case GroceryPlanner.Inventory.list_grocery_items(authorize?: false, tenant: account_id) do
       {:ok, items} ->
         case Enum.find(items, fn item ->
                String.downcase(item.name) == String.downcase(item_name)
