@@ -63,13 +63,20 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - pg-data:/var/lib/postgresql/data
+      # pg18's Docker image moved PGDATA to a version-specific subdirectory
+      # (/var/lib/postgresql/18/docker) so pg_upgrade --link works across a
+      # single mount. Mount the PARENT — mounting the old /var/lib/postgresql/data
+      # makes the image guard-and-exit on first boot ("unused mount/volume").
+      # See docker-library/postgres#1259 & issue #37.
+      - pg-data:/var/lib/postgresql
     # implicit default network only — never on proxy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      # first-boot initdb must not count as health failures
+      start_period: 30s
 
   ai-service:
     image: ghcr.io/${IMAGE_OWNER}/grocery_planner-ai:latest

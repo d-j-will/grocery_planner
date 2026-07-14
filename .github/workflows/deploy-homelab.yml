@@ -132,6 +132,27 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
+      - name: Check out the deployed commit
+        if: steps.guard.outputs.armed == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Deploy the compose file from the exact commit that passed CI.
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Sync compose file to host
+        if: steps.guard.outputs.armed == 'true'
+        run: |
+          # The repo is the single source of truth for the stack definition, so
+          # a compose change deploys automatically instead of needing a manual
+          # host edit. Only the compose file is copied — .env stays host-only
+          # (it holds secrets and is never synced from the repo).
+          scp \
+            -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=accept-new \
+            -o BatchMode=yes \
+            docker-compose.prod.yml \
+            root@"$DEPLOY_HOST":/root/grocery_planner/docker-compose.prod.yml
+
       - name: Pull, migrate, recreate over SSH
         if: steps.guard.outputs.armed == 'true'
         env:
