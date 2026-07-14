@@ -37,8 +37,13 @@ RUN pip install --index-url https://download.pytorch.org/whl/cpu torch \
 # Copy the rest of the application code
 COPY . .
 
-# Create a non-root user and switch to it
-RUN useradd -m appuser && chown -R appuser /app
+# Create a non-root user and switch to it. /data holds the SQLite DB
+# (AI_DATABASE_URL=sqlite:////data/ai_data.db) and is backed by the ai-data
+# volume. Create + own it here so that when Docker first-populates the empty
+# named volume from the image, the volume root inherits appuser ownership —
+# otherwise it mounts as root:root and SQLite can't open the DB file (the
+# sidecar crash-loops on "unable to open database file").
+RUN useradd -m appuser && mkdir -p /data && chown -R appuser /app /data
 USER appuser
 
 # Expose the port the app runs on
