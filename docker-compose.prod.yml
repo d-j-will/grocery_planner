@@ -49,7 +49,10 @@ services:
         condition: service_started
         required: false
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health_check"]
+      # /ready is DB-aware and sidecar-independent: a degraded AI sidecar must
+      # not mark the app unhealthy. /health_check (503 on degraded) is for
+      # monitoring, not this gate. See org-brain single-instance-ship-ready-defer-liveness.
+      test: ["CMD", "curl", "-f", "http://localhost:4000/ready"]
       interval: 30s
       timeout: 5s
       retries: 3

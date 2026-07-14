@@ -94,4 +94,26 @@ defmodule GroceryPlannerWeb.HealthControllerTest do
       assert content_type =~ "application/json"
     end
   end
+
+  describe "GET /ready" do
+    test "returns 200 ready when the database is reachable", %{conn: conn} do
+      # No AI sidecar stub on purpose: readiness must be independent of the
+      # optional sidecar, so a degraded/unavailable AI service can't fail /ready.
+      conn = get(conn, "/ready")
+      body = json_response(conn, 200)
+
+      assert body["status"] == "ready"
+    end
+
+    test "does not touch the AI sidecar", %{conn: conn} do
+      # If /ready called the AI client, this strict stub would flag an
+      # unexpected request; reaching a 200 proves it never calls out.
+      Req.Test.stub(GroceryPlanner.AiClient, fn _conn ->
+        flunk("/ready must not call the AI sidecar")
+      end)
+
+      conn = get(conn, "/ready")
+      assert json_response(conn, 200)["status"] == "ready"
+    end
+  end
 end

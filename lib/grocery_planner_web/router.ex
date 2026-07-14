@@ -22,6 +22,11 @@ defmodule GroceryPlannerWeb.Router do
   scope "/", GroceryPlannerWeb do
     pipe_through(:api)
 
+    # /ready is the DB-aware routing/healthcheck gate (200 iff DB reachable);
+    # /health_check is the richer monitoring endpoint (503 when the optional
+    # AI sidecar is degraded). Keep both unauthenticated and before any auth
+    # scope so probes need no bearer token.
+    get("/ready", HealthController, :ready)
     get("/health_check", HealthController, :check)
   end
 

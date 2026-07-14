@@ -19,8 +19,31 @@ defmodule GroceryPlannerWeb.HealthController do
     })
   end
 
-  defp check_database do
-    case Ecto.Adapters.SQL.query(GroceryPlanner.Repo, "SELECT 1", []) do
+  @doc """
+  Readiness probe — the container healthcheck + caddy routing gate.
+
+  Returns 200 iff the database answers within a short timeout. It deliberately
+  does NOT check the optional AI sidecar or Oban: a degraded sidecar must not
+  pull a serving, DB-backed app out of rotation. The richer `check/2`
+  (`/health_check`) stays for monitoring, where degraded → 503 is correct.
+
+  See org-brain: single-instance-ship-ready-defer-liveness.
+  """
+  def ready(conn, _params) do
+    case check_database(2_000) do
+      %{status: "ok"} ->
+        conn |> put_status(:ok) |> json(%{status: "ready"})
+
+      database ->
+        conn
+        |> put_status(:service_unavailable)
+        |> json(%{status: "not_ready", database: database})
+    end
+  end
+
+  # Short timeout so a *wedged* DB fails fast (503) rather than hanging the probe.
+  defp check_database(timeout \\ 5_000) do
+    case Ecto.Adapters.SQL.query(GroceryPlanner.Repo, "SELECT 1", [], timeout: timeout) do
       {:ok, _} -> %{status: "ok"}
       {:error, reason} -> %{status: "error", error: inspect(reason)}
     end
