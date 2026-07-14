@@ -19,7 +19,7 @@
 # e.g. langchain needs get_in/1, Elixir 1.17+; that's why this must not drift.)
 # DEBIAN_VERSION is a base-image detail (not a language version) so it lives here,
 # not in .tool-versions. hexpm ships this combo on bookworm+ only.
-ARG ELIXIR_VERSION=1.20.2
+ARG ELIXIR_VERSION=1.19.5
 ARG OTP_VERSION=28.5.0.3
 ARG DEBIAN_VERSION=bookworm-20260623-slim
 
