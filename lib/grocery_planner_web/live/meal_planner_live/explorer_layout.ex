@@ -1908,11 +1908,7 @@ defmodule GroceryPlannerWeb.MealPlannerLive.ExplorerLayout do
   defp maybe_filter_by_search(recipes, ""), do: recipes
 
   defp maybe_filter_by_search(recipes, search_term) do
-    search_lower = String.downcase(search_term)
-
-    Enum.filter(recipes, fn recipe ->
-      String.contains?(String.downcase(recipe.name), search_lower)
-    end)
+    Enum.filter(recipes, &GroceryPlanner.Recipes.name_matches?(&1, search_term))
   end
 
   defp maybe_apply_explorer_filter(recipes, ""), do: recipes

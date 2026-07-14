@@ -217,32 +217,17 @@ defmodule GroceryPlannerWeb.RecipeShowLive do
     user = socket.assigns.current_user
     current_recipe_id = socket.assigns.recipe.id
 
-    case GroceryPlanner.Recipes.list_recipes(actor: user, tenant: account_id) do
-      {:ok, recipes} ->
-        recipes
-        # Exclude current recipe and already-linked follow-ups
-        |> Enum.reject(fn r ->
-          r.id == current_recipe_id || r.parent_recipe_id == current_recipe_id
-        end)
-        # Exclude recipes that are already follow-ups of other parents
-        |> Enum.reject(fn r -> r.is_follow_up end)
-        # Apply search filter
-        |> filter_by_query(query)
-        |> Enum.take(20)
-
-      {:error, _} ->
-        []
-    end
-  end
-
-  defp filter_by_query(recipes, ""), do: recipes
-
-  defp filter_by_query(recipes, query) do
-    query_lower = String.downcase(query)
-
-    Enum.filter(recipes, fn r ->
-      String.contains?(String.downcase(r.name || ""), query_lower)
+    # Name search runs in the DB via browse_recipes; the linking-specific
+    # exclusions stay here. take(20) is applied AFTER the rejects so the list
+    # can't fall short of 20.
+    GroceryPlanner.Recipes.browse_recipes!(%{search: query}, actor: user, tenant: account_id)
+    # Exclude current recipe and already-linked follow-ups
+    |> Enum.reject(fn r ->
+      r.id == current_recipe_id || r.parent_recipe_id == current_recipe_id
     end)
+    # Exclude recipes that are already follow-ups of other parents
+    |> Enum.reject(fn r -> r.is_follow_up end)
+    |> Enum.take(20)
   end
 
   defp load_recipe(socket, id) do

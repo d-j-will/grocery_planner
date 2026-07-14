@@ -1227,11 +1227,7 @@ defmodule GroceryPlannerWeb.MealPlannerLive do
   end
 
   defp filter_recipes_by_name(all_recipes, search_term) do
-    search_lower = String.downcase(search_term)
-
-    Enum.filter(all_recipes, fn recipe ->
-      String.contains?(String.downcase(recipe.name), search_lower)
-    end)
+    Enum.filter(all_recipes, &GroceryPlanner.Recipes.name_matches?(&1, search_term))
   end
 
   # Messages from Layouts

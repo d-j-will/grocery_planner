@@ -850,11 +850,7 @@ defmodule GroceryPlannerWeb.MealPlannerLive.FocusLayout do
       if String.trim(query) == "" do
         all_recipes
       else
-        search_lower = String.downcase(query)
-
-        Enum.filter(all_recipes, fn recipe ->
-          String.contains?(String.downcase(recipe.name), search_lower)
-        end)
+        Enum.filter(all_recipes, &GroceryPlanner.Recipes.name_matches?(&1, query))
       end
 
     socket

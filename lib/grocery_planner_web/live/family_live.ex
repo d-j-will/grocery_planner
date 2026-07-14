@@ -284,9 +284,7 @@ defmodule GroceryPlannerWeb.FamilyLive do
       if search == "" do
         all_recipes
       else
-        Enum.filter(all_recipes, fn recipe ->
-          String.contains?(String.downcase(recipe.name), search)
-        end)
+        Enum.filter(all_recipes, &GroceryPlanner.Recipes.name_matches?(&1, search))
       end
 
     assign(socket, :recipes, filtered)

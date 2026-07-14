@@ -58,4 +58,18 @@ defmodule GroceryPlanner.Recipes do
       define :destroy_filter_preset, action: :destroy
     end
   end
+
+  @doc """
+  Case-insensitive, nil-safe recipe-name substring match.
+
+  The shared in-memory search predicate for the meal-planner and family pickers,
+  which deliberately filter a cached, association-loaded recipe list rather than
+  re-querying per keystroke. (DB-side browsing lives in `browse_recipes/2`.)
+  A blank query matches everything.
+  """
+  def name_matches?(_recipe, query) when query in [nil, ""], do: true
+
+  def name_matches?(recipe, query) do
+    String.contains?(String.downcase(recipe.name || ""), String.downcase(query))
+  end
 end

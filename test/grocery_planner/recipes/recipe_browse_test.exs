@@ -182,6 +182,24 @@ defmodule GroceryPlanner.Recipes.RecipeBrowseTest do
     end
   end
 
+  describe "name_matches?/2 (shared in-memory search predicate)" do
+    test "case-insensitive substring, nil-safe, blank matches all" do
+      recipe = %{name: "Chicken Curry"}
+
+      assert Recipes.name_matches?(recipe, "chick")
+      assert Recipes.name_matches?(recipe, "CURRY")
+      refute Recipes.name_matches?(recipe, "beef")
+
+      # blank/nil query matches everything
+      assert Recipes.name_matches?(recipe, "")
+      assert Recipes.name_matches?(recipe, nil)
+
+      # nil name never crashes
+      assert Recipes.name_matches?(%{name: nil}, "")
+      refute Recipes.name_matches?(%{name: nil}, "anything")
+    end
+  end
+
   describe "tenant isolation" do
     test "only returns recipes from the actor's account", %{account: a, user: u} do
       mk(a, u, %{name: "Mine"})

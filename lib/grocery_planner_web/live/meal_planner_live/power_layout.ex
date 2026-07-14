@@ -70,8 +70,7 @@ defmodule GroceryPlannerWeb.MealPlannerLive.PowerLayout do
   end
 
   def filter_sidebar_recipes(socket, query) do
-    query_down = String.downcase(query)
-    filter_fn = fn recipe -> String.contains?(String.downcase(recipe.name), query_down) end
+    filter_fn = fn recipe -> GroceryPlanner.Recipes.name_matches?(recipe, query) end
 
     all_recipes = socket.assigns[:all_sidebar_recipes] || []
     all_favorites = socket.assigns[:all_sidebar_favorites] || []
