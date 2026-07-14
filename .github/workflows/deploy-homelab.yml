@@ -3,14 +3,14 @@ name: Deploy (homelab)
 # Slackex-pattern deploy: build the app + AI sidecar images to GHCR, then join
 # the tailnet and SSH to the homelab Docker host to pull/migrate/recreate.
 #
-# Gated on CI success via workflow_run — which only fires for the *default
-# branch*, so this activates (and the first real deploy happens) the moment the
-# workflow lands on main. See org-brain: homelab-ci-tailnet-before-ssh.
+# Deploy is a deliberate, TAGGED release — pushing to main only runs CI (ci.yml),
+# it never deploys. Deploying to prod happens by pushing a `v*` tag that points
+# at a commit you've already seen go green on main. See org-brain:
+# homelab-ci-tailnet-before-ssh.
 on:
-  workflow_run:
-    workflows: ["CI"]
-    branches: ["main"]
-    types: [completed]
+  push:
+    tags:
+      - "v*"
 
 concurrency:
   group: deploy-homelab
@@ -23,8 +23,6 @@ permissions:
 jobs:
   build-and-push:
     name: Build & push images to GHCR
-    # Only proceed when CI passed. A failed/cancelled CI run never deploys.
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     outputs:
       owner_lc: ${{ steps.vars.outputs.owner_lc }}
@@ -34,13 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          # Build the exact commit that passed CI, not the branch tip.
-          ref: ${{ github.event.workflow_run.head_sha }}
+          # Build the exact commit the tag points at.
+          ref: ${{ github.sha }}
 
       - name: Compute image namespace + tag
         id: vars
         env:
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           # GHCR requires a lowercase owner; ${{ github.repository_owner }} is
           # the single source of truth for the namespace (must equal IMAGE_OWNER
@@ -136,8 +134,8 @@ jobs:
         if: steps.guard.outputs.armed == 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          # Deploy the compose file from the exact commit that passed CI.
-          ref: ${{ github.event.workflow_run.head_sha }}
+          # Deploy the compose file from the exact commit the tag points at.
+          ref: ${{ github.sha }}
 
       - name: Sync compose file to host
         if: steps.guard.outputs.armed == 'true'
