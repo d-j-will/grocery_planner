@@ -168,9 +168,13 @@ jobs:
           cd python_service
           USE_TESSERACT_OCR=true USE_VLLM_OCR=false \
             uvicorn main:app --host 127.0.0.1 --port 8099 &
-          echo "Waiting for Python service..."
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8099/health > /dev/null 2>&1; then
+          # Gate on /health/ready (DB reachable + model loaded), NOT /health
+          # (bare liveness). /health returns ok the instant uvicorn binds the
+          # port, before torch imports and Postgres connects, so gating on it
+          # lets the first integration test race an un-warm sidecar (grocery_planner-0qp).
+          echo "Waiting for Python service readiness..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8099/health/ready > /dev/null 2>&1; then
               echo "Python service is ready!"
               break
             fi
