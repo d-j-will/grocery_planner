@@ -31,7 +31,7 @@ services:
       # Feature flags — day-one posture (react to this):
       RECEIPT_PROCESSING_ENABLED: "true"
       SEMANTIC_SEARCH_ENABLED: "true"
-      AI_CATEGORIZATION_ENABLED: "false" # sidecar real-ML classification is off (CPU scope); don't serve stub categories
+      AI_CATEGORIZATION_ENABLED: "false" # off for v1 (real-ML classification not enabled yet); don't serve stub categories. GPU-local path deferred to grocery_planner-89l
     volumes:
       - receipt-uploads:/data/uploads/receipts
     networks:
@@ -75,10 +75,13 @@ services:
     image: ghcr.io/${IMAGE_OWNER}/grocery_planner-ai:latest
     restart: unless-stopped
     environment:
-      # CPU-only, hard constraint: vLLM stays off, Tesseract on
+      # v1 runs OCR on CPU via Tesseract. vLLM/GPU OCR is off for v1 by choice,
+      # NOT because GPU is banned — GPU/ROCm is viable on the headless Proxmox
+      # host (org-brain: headless-amd-apu-blacklist-amdgpu-for-cpu-only-ml);
+      # the GPU sidecar path is deferred to grocery_planner-89l.
       USE_VLLM_OCR: "false"
       USE_TESSERACT_OCR: "true"
-      USE_REAL_CLASSIFICATION: "false" # distilbart-mnli is a ~1GB CPU-hungry model — out of scope
+      USE_REAL_CLASSIFICATION: "false" # off for v1 (distilbart-mnli ~1GB, CPU-hungry); GPU-local classification now viable — deferred to grocery_planner-89l
       EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
       DEBUG: "false"
       TIDEWAVE_ENABLED: "false" # dev tool; defaults to TRUE in config.py — must be off
