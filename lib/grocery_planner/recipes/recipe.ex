@@ -229,6 +229,17 @@ defmodule GroceryPlanner.Recipes.Recipe do
       require_atomic? false
     end
 
+    update :toggle_favorite do
+      accept []
+
+      change fn changeset, _ ->
+        current = Ash.Changeset.get_attribute(changeset, :is_favorite)
+        Ash.Changeset.change_attribute(changeset, :is_favorite, !current)
+      end
+
+      require_atomic? false
+    end
+
     update :link_as_follow_up do
       argument :parent_recipe_id, :uuid, allow_nil?: false
 
@@ -264,6 +275,26 @@ defmodule GroceryPlanner.Recipes.Recipe do
     read :list_all_sorted do
       filter expr(is_nil(deleted_at))
       prepare build(sort: [name: :asc])
+    end
+
+    # Deep recipe-browsing seam: one filtered/sorted/paginated read that replaces
+    # the in-memory filter/sort duplicated across the recipe LiveViews. All args
+    # are optional (nil/blank = no-op). Named to mirror FilterPreset.criteria keys.
+    read :browse do
+      argument :search, :string
+      argument :difficulty, :atom
+      argument :prep_time, :atom
+      argument :favorites, :boolean
+      argument :chains, :boolean
+      argument :cuisine, :string
+      argument :dietary_needs, {:array, :atom}
+      argument :sort_by, :string
+
+      pagination offset?: true, required?: false, countable: true
+
+      filter expr(is_nil(deleted_at))
+
+      prepare GroceryPlanner.Recipes.Preparations.BrowseRecipes
     end
   end
 

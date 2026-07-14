@@ -94,6 +94,26 @@ defmodule GroceryPlanner.Recipes.RecipeFavoriteTest do
       assert reloaded_recipe.is_favorite == true
     end
 
+    test "toggle_favorite action flips the flag each call" do
+      {account, user} = create_account_and_user()
+
+      {:ok, recipe} =
+        Recipes.create_recipe(
+          account.id,
+          %{name: "Toggle Me", servings: 4},
+          actor: user,
+          tenant: account.id
+        )
+
+      assert recipe.is_favorite == false
+
+      assert {:ok, on} = Recipes.toggle_favorite(recipe, actor: user, tenant: account.id)
+      assert on.is_favorite == true
+
+      assert {:ok, off} = Recipes.toggle_favorite(on, actor: user, tenant: account.id)
+      assert off.is_favorite == false
+    end
+
     test "can create recipe with favorite status" do
       {account, user} = create_account_and_user()
 

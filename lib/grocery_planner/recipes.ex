@@ -22,10 +22,12 @@ defmodule GroceryPlanner.Recipes do
       define :list_favorite_recipes, action: :favorites
       define :list_recipes_sorted, action: :list_all_sorted
       define :list_recipes_for_meal_planner, action: :meal_planner_recipes
+      define :browse_recipes, action: :browse
       define :get_recipe, action: :read, get_by: [:id]
       define :update_recipe, action: :update
       define :destroy_recipe, action: :destroy
       define :toggle_base_recipe, action: :toggle_base_recipe
+      define :toggle_favorite, action: :toggle_favorite
       define :link_as_follow_up, action: :link_as_follow_up, args: [:parent_recipe_id]
       define :unlink_from_parent, action: :unlink_from_parent
       define :sync_recipes, action: :sync, args: [:since]
