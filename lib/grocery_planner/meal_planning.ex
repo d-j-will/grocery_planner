@@ -10,6 +10,7 @@ defmodule GroceryPlanner.MealPlanning do
   resources do
     resource GroceryPlanner.MealPlanning.MealPlan do
       define :create_meal_plan, action: :create, args: [:account_id]
+      define :place_meal, action: :place
       define :list_meal_plans, action: :read
 
       define :list_meal_plans_by_date_range,
@@ -77,4 +78,57 @@ defmodule GroceryPlanner.MealPlanning do
       define :pull_vote_entries, action: :sync, args: [:since, :limit]
     end
   end
+
+  @doc """
+  Swaps the (scheduled_date, meal_type) slots of two meals.
+
+  The partial unique slot index is *immediate*, so Postgres checks it per row
+  within a statement — a single swapping UPDATE (or two sequential updates)
+  still trips it because one row transiently lands on the other's slot. Instead,
+  within a transaction, we hide meal_a via `deleted_at` (which drops it out of
+  the `WHERE deleted_at IS NULL` index, freeing its slot), move meal_b into that
+  slot, then move meal_a into meal_b's now-free slot and un-hide it. Row ids are
+  preserved. Both meals belong to the same account (loaded/authorized by the
+  caller). See grocery_planner-vzc.
+  """
+  def swap_meal_slots(meal_a, meal_b) do
+    repo = GroceryPlanner.Repo
+    a_id = Ecto.UUID.dump!(meal_a.id)
+    b_id = Ecto.UUID.dump!(meal_b.id)
+
+    result =
+      repo.transaction(fn ->
+        with {:ok, _} <-
+               sql(
+                 repo,
+                 "UPDATE meal_plans SET deleted_at = (now() AT TIME ZONE 'utc') WHERE id = $1",
+                 [
+                   a_id
+                 ]
+               ),
+             {:ok, _} <-
+               sql(
+                 repo,
+                 "UPDATE meal_plans SET scheduled_date = $2::date, meal_type = $3, updated_at = (now() AT TIME ZONE 'utc') WHERE id = $1",
+                 [b_id, meal_a.scheduled_date, to_string(meal_a.meal_type)]
+               ),
+             {:ok, _} <-
+               sql(
+                 repo,
+                 "UPDATE meal_plans SET scheduled_date = $2::date, meal_type = $3, deleted_at = NULL, updated_at = (now() AT TIME ZONE 'utc') WHERE id = $1",
+                 [a_id, meal_b.scheduled_date, to_string(meal_b.meal_type)]
+               ) do
+          :ok
+        else
+          {:error, reason} -> repo.rollback(reason)
+        end
+      end)
+
+    case result do
+      {:ok, :ok} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp sql(repo, query, params), do: Ecto.Adapters.SQL.query(repo, query, params)
 end

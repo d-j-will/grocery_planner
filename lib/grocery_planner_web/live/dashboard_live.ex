@@ -66,8 +66,7 @@ defmodule GroceryPlannerWeb.DashboardLive do
   def handle_event("add_rescue_to_plan", %{"recipe-id" => recipe_id}, socket) do
     account_id = socket.assigns.current_account.id
 
-    case MealPlanning.create_meal_plan(
-           account_id,
+    case MealPlanning.place_meal(
            %{
              recipe_id: recipe_id,
              scheduled_date: Date.utc_today(),

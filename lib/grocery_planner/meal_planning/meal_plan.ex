@@ -10,6 +10,11 @@ defmodule GroceryPlanner.MealPlanning.MealPlan do
   postgres do
     table "meal_plans"
     repo GroceryPlanner.Repo
+
+    # Maps the :unique_slot_per_account identity's `where is_nil(deleted_at)` to
+    # raw SQL. AshPostgres uses this for both the partial unique index and the
+    # `:place` upsert's ON CONFLICT (...) WHERE deleted_at IS NULL target.
+    identity_wheres_to_sql unique_slot_per_account: "deleted_at IS NULL"
   end
 
   json_api do
@@ -88,6 +93,29 @@ defmodule GroceryPlanner.MealPlanning.MealPlan do
       argument :account_id, :uuid, allow_nil?: false
 
       change manage_relationship(:account_id, :account, type: :append)
+    end
+
+    # Create-or-replace the meal occupying a slot. Interactive paths (drag-drop,
+    # quick-add, follow-up suggestions) and undo-restore use this so a slot never
+    # doubles: on conflict with a live row for (account_id, scheduled_date,
+    # meal_type) it replaces the occupant's content in place. account_id is set
+    # from the tenant, so no relationship management is needed (which also keeps
+    # it compatible with the upsert path). See grocery_planner-vzc.
+    create :place do
+      upsert? true
+      upsert_identity :unique_slot_per_account
+      upsert_fields [:recipe_id, :servings, :notes, :status, :completed_at]
+
+      accept [
+        :recipe_id,
+        :scheduled_date,
+        :meal_type,
+        :servings,
+        :notes
+      ]
+
+      change set_attribute(:status, :planned)
+      change set_attribute(:completed_at, nil)
     end
 
     update :update do
@@ -223,6 +251,17 @@ defmodule GroceryPlanner.MealPlanning.MealPlan do
   calculations do
     calculate :requires_shopping, :boolean do
       calculation expr(not recipe.can_make)
+    end
+  end
+
+  identities do
+    # One live meal per (account_id, scheduled_date, meal_type). Partial on
+    # deleted_at so soft-deleting a meal frees its slot for a new one — a full
+    # index would keep the tombstone occupying the slot. account_id is the
+    # tenant attribute; listing it explicitly follows the repo convention
+    # (e.g. RecipeTag.unique_name_per_account). See grocery_planner-vzc.
+    identity :unique_slot_per_account, [:account_id, :scheduled_date, :meal_type] do
+      where expr(is_nil(deleted_at))
     end
   end
 end

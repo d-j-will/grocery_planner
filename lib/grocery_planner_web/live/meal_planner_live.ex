@@ -563,10 +563,9 @@ defmodule GroceryPlannerWeb.MealPlannerLive do
     target_date = Date.from_iso8601!(target_date_str)
     target_meal_type = String.to_existing_atom(target_type_str)
 
-    # Create a new meal plan from the dropped recipe
+    # Place the dropped recipe in the slot, replacing any existing meal there.
     result =
-      GroceryPlanner.MealPlanning.create_meal_plan(
-        socket.assigns.current_account.id,
+      GroceryPlanner.MealPlanning.place_meal(
         %{
           recipe_id: recipe_id,
           scheduled_date: target_date,
@@ -634,41 +633,35 @@ defmodule GroceryPlannerWeb.MealPlannerLive do
              actor: socket.assigns.current_user,
              tenant: socket.assigns.current_account.id
            ) do
-      # Swap the positions
+      # Atomic swap — a single UPDATE so the partial unique slot index never
+      # sees the transient "both in one slot" state (grocery_planner-vzc).
       dragged_old = %{date: dragged_meal.scheduled_date, meal_type: dragged_meal.meal_type}
       target_old = %{date: target_meal.scheduled_date, meal_type: target_meal.meal_type}
 
-      # Update dragged meal to target position
-      {:ok, _} =
-        GroceryPlanner.MealPlanning.update_meal_plan(
-          dragged_meal,
-          %{scheduled_date: target_old.date, meal_type: target_old.meal_type},
-          actor: socket.assigns.current_user
-        )
+      case GroceryPlanner.MealPlanning.swap_meal_slots(dragged_meal, target_meal) do
+        :ok ->
+          undo_system =
+            UndoSystem.push_undo(
+              socket.assigns.undo_system,
+              UndoActions.swap_meals(dragged_id, target_id, dragged_old, target_old),
+              "Meals swapped"
+            )
 
-      # Update target meal to dragged position
-      {:ok, _} =
-        GroceryPlanner.MealPlanning.update_meal_plan(
-          target_meal,
-          %{scheduled_date: dragged_old.date, meal_type: dragged_old.meal_type},
-          actor: socket.assigns.current_user
-        )
+          socket =
+            socket
+            |> assign(:undo_system, undo_system)
+            |> assign(:pending_swap, nil)
+            |> DataLoader.load_week_meals()
+            |> maybe_refresh_layout()
 
-      undo_system =
-        UndoSystem.push_undo(
-          socket.assigns.undo_system,
-          UndoActions.swap_meals(dragged_id, target_id, dragged_old, target_old),
-          "Meals swapped"
-        )
+          {:noreply, socket}
 
-      socket =
-        socket
-        |> assign(:undo_system, undo_system)
-        |> assign(:pending_swap, nil)
-        |> DataLoader.load_week_meals()
-        |> maybe_refresh_layout()
-
-      {:noreply, socket}
+        {:error, _} ->
+          {:noreply,
+           socket
+           |> assign(:pending_swap, nil)
+           |> put_flash(:error, "Failed to swap meals")}
+      end
     else
       _ ->
         socket =
@@ -805,33 +798,56 @@ defmodule GroceryPlannerWeb.MealPlannerLive do
         tenant: socket.assigns.current_account.id
       )
 
-    # Create copies for this week
-    created_count =
-      Enum.reduce(last_week_meals, 0, fn meal, count ->
+    # Pre-filter slots already filled this week so a copy never clobbers a
+    # manual plan (grocery_planner-vzc): skip occupied, create only the free
+    # ones. The partial unique index is the backstop; this is the friendly path.
+    {:ok, this_week_meals} =
+      GroceryPlanner.MealPlanning.list_meal_plans_by_date_range(
+        socket.assigns.week_start,
+        Date.add(socket.assigns.week_start, 7),
+        actor: socket.assigns.current_user,
+        tenant: socket.assigns.current_account.id
+      )
+
+    occupied = MapSet.new(this_week_meals, &{&1.scheduled_date, &1.meal_type})
+
+    {created_count, skipped_count} =
+      Enum.reduce(last_week_meals, {0, 0}, fn meal, {created, skipped} ->
         new_date = Date.add(meal.scheduled_date, 7)
 
-        case GroceryPlanner.MealPlanning.create_meal_plan(
-               socket.assigns.current_account.id,
-               %{
-                 recipe_id: meal.recipe_id,
-                 scheduled_date: new_date,
-                 meal_type: meal.meal_type,
-                 servings: meal.servings,
-                 notes: meal.notes
-               },
-               actor: socket.assigns.current_user,
-               tenant: socket.assigns.current_account.id
-             ) do
-          {:ok, _} -> count + 1
-          _ -> count
+        if MapSet.member?(occupied, {new_date, meal.meal_type}) do
+          {created, skipped + 1}
+        else
+          case GroceryPlanner.MealPlanning.create_meal_plan(
+                 socket.assigns.current_account.id,
+                 %{
+                   recipe_id: meal.recipe_id,
+                   scheduled_date: new_date,
+                   meal_type: meal.meal_type,
+                   servings: meal.servings,
+                   notes: meal.notes
+                 },
+                 actor: socket.assigns.current_user,
+                 tenant: socket.assigns.current_account.id
+               ) do
+            {:ok, _} -> {created + 1, skipped}
+            _ -> {created, skipped}
+          end
         end
       end)
+
+    message =
+      if skipped_count > 0 do
+        "Copied #{created_count} meals from last week (kept #{skipped_count} already planned)"
+      else
+        "Copied #{created_count} meals from last week"
+      end
 
     socket =
       socket
       |> DataLoader.load_week_meals()
       |> maybe_refresh_layout()
-      |> put_flash(:info, "Copied #{created_count} meals from last week")
+      |> put_flash(:info, message)
 
     {:noreply, socket}
   end
@@ -1056,8 +1072,7 @@ defmodule GroceryPlannerWeb.MealPlannerLive do
     account_id = socket.assigns.current_account.id
     date = Date.from_iso8601!(date_str)
 
-    case GroceryPlanner.MealPlanning.create_meal_plan(
-           account_id,
+    case GroceryPlanner.MealPlanning.place_meal(
            %{recipe_id: recipe_id, scheduled_date: date, meal_type: :dinner, servings: 2},
            authorize?: false,
            tenant: account_id
@@ -1145,8 +1160,7 @@ defmodule GroceryPlannerWeb.MealPlannerLive do
     account_id = socket.assigns.current_account.id
     today = Date.utc_today()
 
-    case GroceryPlanner.MealPlanning.create_meal_plan(
-           account_id,
+    case GroceryPlanner.MealPlanning.place_meal(
            %{recipe_id: recipe_id, scheduled_date: today, meal_type: :dinner, servings: 2},
            authorize?: false,
            tenant: account_id
@@ -1486,10 +1500,9 @@ defmodule GroceryPlannerWeb.MealPlannerLive do
   end
 
   defp perform_add_meal(socket, recipe_id, date, meal_type) do
-    # Logic extracted from select_recipe
+    # Place in the slot, replacing any existing meal there.
     result =
-      GroceryPlanner.MealPlanning.create_meal_plan(
-        socket.assigns.current_account.id,
+      GroceryPlanner.MealPlanning.place_meal(
         %{
           recipe_id: recipe_id,
           scheduled_date: date,

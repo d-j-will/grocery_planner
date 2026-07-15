@@ -5,6 +5,21 @@ defmodule GroceryPlannerWeb.MealPlannerLive.DataLoader do
 
   import Phoenix.Component, only: [assign: 3]
   alias GroceryPlanner.{MealPlanning, Recipes}
+  require Logger
+
+  defp warn_on_slot_collision(date, meals) do
+    dupes =
+      meals
+      |> Enum.frequencies_by(& &1.meal_type)
+      |> Enum.filter(fn {_type, count} -> count > 1 end)
+
+    if dupes != [] do
+      Logger.warning(
+        "Duplicate meal-plan slots on #{date}: #{inspect(dupes)} — the unique slot " <>
+          "index should prevent this (grocery_planner-vzc)"
+      )
+    end
+  end
 
   def load_week_meals(socket) do
     account_id = socket.assigns.current_account.id
@@ -33,11 +48,15 @@ defmodule GroceryPlannerWeb.MealPlannerLive.DataLoader do
           Date.compare(mp.scheduled_date, week_end) in [:eq, :lt]
       end)
 
-    # Assign both the list (for compatibility) and the map (for O(1) access)
+    # Assign both the list (for compatibility) and the map (for O(1) access).
+    # Keying by meal_type collapses any duplicate slot to the last row; the
+    # partial unique index (grocery_planner-vzc) should make that impossible, so
+    # surface a collision rather than silently masking hidden orphan rows.
     week_meals_map =
       meal_plans
       |> Enum.group_by(& &1.scheduled_date)
       |> Map.new(fn {date, meals} ->
+        warn_on_slot_collision(date, meals)
         {date, Enum.into(meals, %{}, &{&1.meal_type, &1})}
       end)
 

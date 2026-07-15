@@ -81,7 +81,11 @@ defmodule GroceryPlannerWeb.MealPlannerLive.UndoActions do
   end
 
   def apply_undo({:delete_meal, meal_data}, actor, tenant) do
-    MealPlanning.create_meal_plan(tenant, meal_data, actor: actor, tenant: tenant)
+    # Restore-and-replace: put the meal back, replacing whatever now occupies the
+    # slot (grocery_planner-vzc). place_meal accepts slot content only, so drop
+    # the status/other keys the delete snapshot carried.
+    attrs = Map.take(meal_data, [:recipe_id, :scheduled_date, :meal_type, :servings, :notes])
+    MealPlanning.place_meal(attrs, actor: actor, tenant: tenant)
   end
 
   def apply_undo({:move_meal, meal_id, from, _to}, actor, tenant) do
@@ -103,24 +107,13 @@ defmodule GroceryPlannerWeb.MealPlannerLive.UndoActions do
     end
   end
 
-  def apply_undo({:swap_meals, meal_a_id, meal_b_id, pos_a, pos_b}, actor, tenant) do
-    # Undo swap by swapping them back to original positions
+  def apply_undo({:swap_meals, meal_a_id, meal_b_id, _pos_a, _pos_b}, actor, tenant) do
+    # The forward swap left the two meals in each other's slots; swapping their
+    # current slots again atomically restores the originals. See swap_meal_slots
+    # for why this must be one statement (grocery_planner-vzc).
     with {:ok, meal_a} <- MealPlanning.get_meal_plan(meal_a_id, actor: actor, tenant: tenant),
          {:ok, meal_b} <- MealPlanning.get_meal_plan(meal_b_id, actor: actor, tenant: tenant) do
-      # Move meal_a back to pos_a
-      {:ok, _} =
-        MealPlanning.update_meal_plan(
-          meal_a,
-          %{scheduled_date: pos_a.date, meal_type: pos_a.meal_type},
-          actor: actor
-        )
-
-      # Move meal_b back to pos_b
-      MealPlanning.update_meal_plan(
-        meal_b,
-        %{scheduled_date: pos_b.date, meal_type: pos_b.meal_type},
-        actor: actor
-      )
+      MealPlanning.swap_meal_slots(meal_a, meal_b)
     end
   end
 
