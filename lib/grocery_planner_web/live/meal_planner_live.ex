@@ -633,8 +633,9 @@ defmodule GroceryPlannerWeb.MealPlannerLive do
              actor: socket.assigns.current_user,
              tenant: socket.assigns.current_account.id
            ) do
-      # Atomic swap — a single UPDATE so the partial unique slot index never
-      # sees the transient "both in one slot" state (grocery_planner-vzc).
+      # Swap is a hide/move/unhide transaction in swap_meal_slots/2: the
+      # immediate partial unique slot index rejects a single-statement swap, so
+      # meal_a is hidden via deleted_at to free its slot first (grocery_planner-vzc).
       dragged_old = %{date: dragged_meal.scheduled_date, meal_type: dragged_meal.meal_type}
       target_old = %{date: target_meal.scheduled_date, meal_type: target_meal.meal_type}
 
