@@ -1,6 +1,6 @@
 # AI-006: Receipt Pipeline Rework — staged workers, honest contract
 
-**Status:** design in progress — sections 1–3 settled, 4–7 open
+**Status:** design in progress — §1–4 settled, §5 firm, §6–7 captured
 **Date:** 2026-07-16
 **Supersedes the pipeline built in:** AI-003 (`4a51ab8`)
 **Related cards:** `reactor-is-not-durable-oban-owns-durability-defer-sagas-until-a-step-has-a-committed-side-effect`, `architectural-decisions-live-in-org-brain-not-in-repo-adr-files`
@@ -58,6 +58,31 @@ counter-intuitive and will otherwise be re-litigated:
 
 The recurring shape: **built completely, never wired, then worked around.** Five
 instances. The design below is judged partly on whether it adds a sixth.
+
+## Arcs
+
+This ships as **separate arcs**, not one change. Each is independently reviewable,
+revertable, and valuable on its own. One big-bang change to a P1 path is the shape that
+produced the five abandoned paths above.
+
+| Arc | Contains | Depends on | Ships alone? |
+|---|---|---|---|
+| **1 — Honest seam** | §4a (classify errors), §5 (contract fix), fixtures | — | Yes. Unblocks `83o` on its own. |
+| **2 — Staged pipeline** | §1, §2, §3, §4b–d | Arc 1 | Fixes `cxk`, `c29`, `eeg` |
+| **3 — Observability** | §7 (`t7j`, Oban Web, Oban telemetry) | — (`t7j` is standalone) | Yes |
+| **4 — Sidecar collapse** | §6 (delete the dead paths) | Arcs 1 + 2 | Yes, once they land |
+
+**Arc 1 goes first.** §1–3 are designed *around* the payload, and we already know the
+payload lies — restaging on it would mean rebuilding `extract` twice. Arc 1 is also the
+smallest and the only one that delivers value (`83o`, currency) without touching the
+pipeline.
+
+**Arc 3 can go first or in parallel** — `t7j` has no dependency on any of this, and
+landing it early means the rework is measurable rather than asserted. Worth doing if
+before/after evidence matters.
+
+**Arc 4 is subtraction only** and must go last: §6 retires `ai_artifacts`, which only
+becomes redundant once §2's `raw_extraction` exists.
 
 ## 1. Pipeline shape — SETTLED
 
@@ -183,27 +208,70 @@ Because status is a durable milestone, the state *is* the queue; no extra bookke
 > wrong when *"the `where` clause may change between batches (e.g. if it depends on
 > time)"*. This would fail intermittently under load rather than loudly.
 
-## 4. Failure taxonomy — OPEN
+## 4. Failure taxonomy — SETTLED (blocked on 4a)
 
-Sketch, to be settled next:
+### 4a. Prerequisite: the seam must classify errors
 
-| Condition | Return | Milestone |
+**The taxonomy is not implementable on the current seam.** `AiClient.handle_response/1`
+collapses everything into `{:error, term}` — HTTP non-200 returns `{:error, body}` (a
+decoded map), transport failures return `{:error, reason}` (an exception struct). A
+caller cannot tell "sidecar is down" from "this image is garbage", and
+`process_receipt.ex:30-33` treats all of them identically.
+
+`AiClient` must return classified errors:
+
+| Condition | Return |
+|---|---|
+| 200 | `{:ok, payload}` |
+| Transport error (`:econnrefused`, timeout), 502, 503 | `{:error, :unavailable}` |
+| 4xx | `{:error, {:bad_input, detail}}` |
+| Other 5xx | `{:error, {:transient, detail}}` |
+
+> This is what an anti-corruption layer at this seam is actually *for*. The 2026-07-14
+> review argued for one on aesthetic grounds ("typed structs", "wire up the dead
+> `contracts.ex`") and that justification did not survive scrutiny — the ACL it named
+> was rightly deleted in `afb24d7` because `atomize/1` ran `String.to_existing_atom`
+> over server-supplied keys. The load-bearing reason is this table: **without
+> classification there is no taxonomy.** Belongs to Arc 1.
+
+### 4b. The mapping
+
+| Classification | Oban return | Receipt condition |
 |---|---|---|
-| Sidecar unreachable (`:econnrefused`, 502/503) | `{:snooze, n}` | `:awaiting_ai` |
-| Bad input (corrupt/unparseable image) | `{:cancel, reason}` | `:failed` + reason |
-| Transient (sidecar up, returned 500) | `{:error, reason}` | unchanged → retries → `discarded` |
+| `:unavailable` | `{:snooze, n}` | `:awaiting_ai` |
+| `{:bad_input, _}` | `{:cancel, reason}` | `:failed` + reason |
+| `{:transient, _}` | `{:error, reason}` | unchanged → retries → `discarded` |
 
-Constraints established:
+**`{:discard, reason}` is deprecated** → `{:cancel, reason}`. Grep before writing new
+returns.
 
-- **Snooze does not burn the retry budget** (it increments `max_attempts` in lockstep)
-  **but does increment `attempt`**, which drives the default exponential backoff — the
-  docs cite ~6 days between attempts 19 and 20. Free Oban needs a custom `backoff/1`;
-  Pro's Smart Engine rolls `attempt` back.
-- **`{:discard, reason}` is deprecated** → `{:cancel, reason}`. Grep for it.
-- **The tension to decide deliberately:** snooze-forever *hides the outage* — a snoozing
-  job never reaches `discarded`, so nothing alerts, and the sidecar could be down for a
-  week in silence. Either bound the snooze count and convert to `{:error, _}`, or alert
-  on queue depth. **Not optional if we snooze.**
+### 4c. The snooze-hides-the-outage tension — resolved
+
+Snoozing forever means a job never reaches `discarded`, so nothing alerts and the
+sidecar can be down for a week in silence. **Resolution: make the outage visible in the
+product, not only in Grafana.**
+
+A snoozing extract sets the receipt's condition to `:awaiting_ai`, which the UI shows
+("waiting for the AI service"). The outage is then visible to the person who cares most,
+without any observability stack existing yet. Operators alert on
+`count(receipts where condition == :awaiting_ai)` — a *domain* metric, more meaningful
+than queue depth and not dependent on Arc 3 landing first.
+
+**Belt-and-braces:** bound cumulative snoozing (~2h) and then convert to `{:error, _}`
+so nothing waits forever. Track the snooze count in job `meta`.
+
+### 4d. Custom `backoff/1` is required, not optional
+
+Snooze increments `max_attempts` in lockstep (so it does **not** burn the retry budget)
+**but still increments `attempt`** — and the default exponential backoff keys off
+`attempt`. After a run of snoozes, a subsequent *real* error backs off enormously; the
+Oban docs cite ~6 days between attempts 19 and 20. Pro's Smart Engine rolls `attempt`
+back; on free Oban we discount snoozes ourselves — key `backoff/1` off
+`attempt - snooze_count` (from `meta`), or cap the backoff outright.
+
+Without this, a receipt that snoozed through a deploy and then hit one genuine error
+would sit un-retried for days, looking exactly like the stuck-in-processing bug we're
+here to remove.
 
 ## 5. Contract fix — OPEN (prerequisite)
 
