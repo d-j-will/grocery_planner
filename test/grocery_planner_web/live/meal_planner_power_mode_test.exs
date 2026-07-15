@@ -897,4 +897,67 @@ defmodule GroceryPlannerWeb.MealPlannerPowerModeTest do
       assert html =~ "Tomato Basil Soup"
     end
   end
+
+  describe "copy_last_week (skips occupied slots — grocery_planner-vzc)" do
+    test "copies free slots but skips occupied ones without clobbering the manual plan",
+         %{conn: conn, account: account, user: user, week_start: week_start} do
+      last_week_start = Date.add(week_start, -7)
+
+      old_dinner = create_recipe(account, user, %{name: "Old Dinner"})
+      old_lunch = create_recipe(account, user, %{name: "Old Lunch"})
+      manual_dinner = create_recipe(account, user, %{name: "Manual Dinner"})
+
+      # Last week (Monday): a dinner and a lunch — both would copy into this Monday.
+      mk_meal(account, user, old_dinner, last_week_start, :dinner)
+      mk_meal(account, user, old_lunch, last_week_start, :lunch)
+
+      # This week (Monday): dinner is already manually planned — the occupied slot.
+      mk_meal(account, user, manual_dinner, week_start, :dinner)
+
+      {:ok, view, _html} = live(conn, "/meal-planner")
+
+      html =
+        view
+        |> element("button[phx-click='copy_last_week']")
+        |> render_click()
+
+      # One free slot copied, one occupied slot kept.
+      assert html =~ "Copied 1 meals from last week (kept 1 already planned)"
+
+      # Occupied Monday dinner is NOT clobbered — still exactly the manual meal.
+      assert slot_recipe_ids(account, user, week_start, :dinner) == [manual_dinner.id]
+      # Free Monday lunch received the copied meal.
+      assert slot_recipe_ids(account, user, week_start, :lunch) == [old_lunch.id]
+    end
+  end
+
+  defp mk_meal(account, user, recipe, date, meal_type) do
+    {:ok, meal_plan} =
+      GroceryPlanner.MealPlanning.create_meal_plan(
+        account.id,
+        %{recipe_id: recipe.id, scheduled_date: date, meal_type: meal_type, servings: 2},
+        actor: user,
+        tenant: account.id
+      )
+
+    meal_plan
+  end
+
+  # All live recipe_ids in a (date, meal_type) slot — a list so the assertions
+  # also prove the slot holds exactly one meal (no duplicate/clobbered rows).
+  defp slot_recipe_ids(account, user, date, meal_type) do
+    # by_date_range's end is exclusive (scheduled_date < end_date), so span a
+    # single day as date..date+1.
+    {:ok, meals} =
+      GroceryPlanner.MealPlanning.list_meal_plans_by_date_range(
+        date,
+        Date.add(date, 1),
+        actor: user,
+        tenant: account.id
+      )
+
+    meals
+    |> Enum.filter(&(&1.meal_type == meal_type))
+    |> Enum.map(& &1.recipe_id)
+  end
 end

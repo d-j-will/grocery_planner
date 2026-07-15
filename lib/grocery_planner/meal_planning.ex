@@ -91,32 +91,34 @@ defmodule GroceryPlanner.MealPlanning do
   preserved. Both meals belong to the same account (loaded/authorized by the
   caller). See grocery_planner-vzc.
   """
-  def swap_meal_slots(meal_a, meal_b) do
+  def swap_meal_slots(%{account_id: account_id} = meal_a, %{account_id: account_id} = meal_b) do
     repo = GroceryPlanner.Repo
     a_id = Ecto.UUID.dump!(meal_a.id)
     b_id = Ecto.UUID.dump!(meal_b.id)
+    acct = Ecto.UUID.dump!(account_id)
 
     result =
       repo.transaction(fn ->
+        # Every UPDATE is scoped by account_id as well as id: the raw SQL bypasses
+        # Ash's automatic tenant enforcement, so a row from another tenant must
+        # never be touched even if a stale/forged id reaches here.
         with {:ok, _} <-
                sql(
                  repo,
-                 "UPDATE meal_plans SET deleted_at = (now() AT TIME ZONE 'utc') WHERE id = $1",
-                 [
-                   a_id
-                 ]
+                 "UPDATE meal_plans SET deleted_at = (now() AT TIME ZONE 'utc') WHERE id = $1 AND account_id = $2",
+                 [a_id, acct]
                ),
              {:ok, _} <-
                sql(
                  repo,
-                 "UPDATE meal_plans SET scheduled_date = $2::date, meal_type = $3, updated_at = (now() AT TIME ZONE 'utc') WHERE id = $1",
-                 [b_id, meal_a.scheduled_date, to_string(meal_a.meal_type)]
+                 "UPDATE meal_plans SET scheduled_date = $2::date, meal_type = $3, updated_at = (now() AT TIME ZONE 'utc') WHERE id = $1 AND account_id = $4",
+                 [b_id, meal_a.scheduled_date, to_string(meal_a.meal_type), acct]
                ),
              {:ok, _} <-
                sql(
                  repo,
-                 "UPDATE meal_plans SET scheduled_date = $2::date, meal_type = $3, deleted_at = NULL, updated_at = (now() AT TIME ZONE 'utc') WHERE id = $1",
-                 [a_id, meal_b.scheduled_date, to_string(meal_b.meal_type)]
+                 "UPDATE meal_plans SET scheduled_date = $2::date, meal_type = $3, deleted_at = NULL, updated_at = (now() AT TIME ZONE 'utc') WHERE id = $1 AND account_id = $4",
+                 [a_id, meal_b.scheduled_date, to_string(meal_b.meal_type), acct]
                ) do
           :ok
         else
@@ -129,6 +131,10 @@ defmodule GroceryPlanner.MealPlanning do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  # Both meals must belong to the same account — a cross-account swap is a bug,
+  # never a valid operation. Reject it rather than silently touching two tenants.
+  def swap_meal_slots(_meal_a, _meal_b), do: {:error, :cross_account_swap}
 
   defp sql(repo, query, params), do: Ecto.Adapters.SQL.query(repo, query, params)
 end
