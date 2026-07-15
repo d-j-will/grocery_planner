@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — grocery_planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose", flowchart: { curve: "basis" } });
+    </script>
+    <style>
+      .seam { stroke: #64748b; stroke-dasharray: 5 5; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .label { font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; }
+      .callsite { box-shadow: 0 1px 0 rgba(15,23,42,0.06); }
+      body { font-feature-settings: "ss01"; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <!-- ================= HEADER ================= -->
+      <header class="space-y-5">
+        <div class="flex items-baseline justify-between flex-wrap gap-3">
+          <h1 class="text-4xl font-serif tracking-tight">Architecture review — <span class="text-emerald-700">grocery_planner</span></h1>
+          <span class="text-sm text-slate-500">2026-07-14</span>
+        </div>
+        <p class="text-slate-600 max-w-3xl leading-relaxed">
+          Six deepening opportunities, ranked by leverage. The pattern to copy already exists in this codebase:
+          <span class="font-mono text-sm text-emerald-700">Analytics</span> is a deep module — a thin LiveView over a domain module
+          that owns all aggregation. Every candidate below is "make this seam look like <span class="font-mono text-sm">Analytics</span>."
+        </p>
+        <!-- legend -->
+        <div class="flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500 border-t border-b border-slate-200 py-3">
+          <span class="flex items-center gap-2"><span class="inline-block w-4 h-3 border border-slate-400 bg-white"></span> module</span>
+          <span class="flex items-center gap-2"><svg width="26" height="6"><line x1="0" y1="3" x2="26" y2="3" class="seam" stroke-width="2"/></svg> seam</span>
+          <span class="flex items-center gap-2"><svg width="26" height="6"><line x1="0" y1="3" x2="26" y2="3" class="leak" stroke-width="2"/></svg> leakage across seam</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-4 h-3 deep"></span> deep module</span>
+          <span class="flex items-center gap-2"><span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">Strong</span> <span class="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">Worth exploring</span> <span class="inline-block px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-medium">Speculative</span></span>
+        </div>
+      </header>
+
+      <!-- ================= CANDIDATES ================= -->
+      <section id="candidates" class="space-y-16">
+
+        <!-- ---------- CANDIDATE 1: AI seam ---------- -->
+        <article id="c1" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">1 · Deepen the AI seam — validated structs at the <span class="font-mono text-lg">AiClient</span> interface</h2>
+            <span class="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800 font-medium">Strong</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-600 font-medium">ports &amp; adapters</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">lib/grocery_planner/ai_client.ex:184 · ai_client/contracts.ex · ai/schema.ex · categorizer.ex:206 · inventory/receipt_processor.ex:98,280</p>
+
+          <!-- before / after: Mermaid -->
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="label text-slate-400 mb-2">Before · shallow response side</div>
+              <pre class="mermaid">
+flowchart TB
+  S[[Python sidecar]] -->|raw JSON| AC["AiClient.handle_response<br/>returns raw map"]
+  AC -.raw keys.-> P1["categorizer<br/>parse_prediction x2 clauses"]
+  AC -.raw keys.-> P2["receipt_processor<br/>string-or-atom key spelunking"]
+  AC -.raw keys.-> P3["parse_merchant / parse_total<br/>nested-or-flat shapes"]
+  CT["contracts.ex ACL<br/>(441 lines, DEAD)"]
+  SC["schema.ex<br/>(duplicate, DEAD)"]
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#7f1d1d;
+  classDef dead fill:#f1f5f9,stroke:#cbd5e1,color:#94a3b8,stroke-dasharray:4 4;
+  class P1,P2,P3 leak
+  class CT,SC dead
+              </pre>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <div class="label text-slate-400 mb-2">After · one deep adapter</div>
+              <pre class="mermaid">
+flowchart TB
+  S2[[Python sidecar]] -->|raw JSON| AC2["AiClient.extract_receipt<br/>validates internally<br/>(contracts.ex now load-bearing)"]
+  AC2 -->|"{:ok, %ReceiptExtraction{}}"| D1["categorizer"]
+  AC2 -->|"{:ok, %ReceiptExtraction{}}"| D2["receipt_processor"]
+  classDef deep fill:#0f172a,stroke:#0f172a,color:#e2e8f0;
+  class AC2 deep
+              </pre>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            <p><span class="label text-slate-400">Problem</span><br/>Every caller re-parses raw sidecar JSON by hand — string-or-atom keys, nested-or-flat shapes — while a complete anti-corruption layer sits dead in <span class="font-mono">contracts.ex</span>.</p>
+            <p><span class="label text-slate-400">Solution</span><br/><span class="font-mono">extract_receipt/3</span> runs <span class="font-mono">Contracts…validate/1</span> internally and returns a typed struct; delete the duplicate <span class="font-mono">schema.ex</span>.</p>
+          </div>
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside marker:text-emerald-500">
+            <li>locality: JSON→struct in one module</li>
+            <li>deletes dual-key parse clauses</li>
+            <li>schema drift fails loudly, once</li>
+            <li>dead ACL becomes load-bearing</li>
+          </ul>
+          <div class="border-l-4 border-amber-400 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            Deletion test today: delete <span class="font-mono">contracts.ex</span> → only tests break; delete <span class="font-mono">schema.ex</span> → nothing breaks. Two ACLs written, zero wired in.
+          </div>
+        </article>
+
+        <!-- ---------- CANDIDATE 2: Recipes.search_recipes ---------- -->
+        <article id="c2" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">2 · <span class="font-mono text-lg">Recipes.search_recipes/2</span> — one deep recipe query</h2>
+            <span class="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800 font-medium">Strong</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-600 font-medium">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">recipes.ex:19 · recipe.ex:152 · recipes_live.ex:53,220-319 · recipe_show_live.ex:241 · family_live.ex:280 · meal_planner_live/{explorer,power,focus}_layout.ex</p>
+
+          <!-- before / after: hand-built fan-in -->
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4" style="min-height:320px">
+              <div class="label text-slate-400 mb-3">Before · shallow read, filtered 7×</div>
+              <div class="space-y-1.5">
+                <div class="text-center text-xs font-mono text-slate-500 mb-2">list_recipes_sorted() → [all rows]</div>
+                <div class="grid grid-cols-1 gap-1.5">
+                  <div class="callsite text-xs border border-red-200 bg-red-50 rounded px-2 py-1 flex justify-between"><span class="font-mono">recipes_live</span><span class="text-red-600">filter+sort inline</span></div>
+                  <div class="callsite text-xs border border-red-200 bg-red-50 rounded px-2 py-1 flex justify-between"><span class="font-mono">recipe_show_live</span><span class="text-red-600">re-filters</span></div>
+                  <div class="callsite text-xs border border-red-200 bg-red-50 rounded px-2 py-1 flex justify-between"><span class="font-mono">family_live</span><span class="text-red-600">re-filters</span></div>
+                  <div class="callsite text-xs border border-red-200 bg-red-50 rounded px-2 py-1 flex justify-between"><span class="font-mono">explorer_layout</span><span class="text-red-600">search+difficulty+cuisine</span></div>
+                  <div class="callsite text-xs border border-red-200 bg-red-50 rounded px-2 py-1 flex justify-between"><span class="font-mono">power_layout</span><span class="text-red-600">re-filters</span></div>
+                  <div class="callsite text-xs border border-red-200 bg-red-50 rounded px-2 py-1 flex justify-between"><span class="font-mono">focus_layout</span><span class="text-red-600">re-filters</span></div>
+                </div>
+                <div class="mt-2 text-[0.7rem] text-red-700 border-t border-red-100 pt-2">
+                  same <span class="font-mono">String.contains?(downcase…)</span> in 7 files · prep-time buckets &amp; difficulty rank live in web <span class="font-mono">defp</span>s · <span class="font-semibold">try/rescue</span> at recipes_live.ex:53
+                </div>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4 flex flex-col" style="min-height:320px">
+              <div class="label text-slate-400 mb-3">After · one deep read action</div>
+              <div class="grid grid-cols-3 gap-1.5 text-[0.7rem] font-mono text-slate-500 mb-3">
+                <span class="text-center">recipes_live</span><span class="text-center">explorer_layout</span><span class="text-center">family_live</span>
+                <span class="text-center">recipe_show</span><span class="text-center">power_layout</span><span class="text-center">focus_layout</span>
+              </div>
+              <div class="text-center text-slate-300 text-lg leading-none mb-2">│ │ │ │ │ │ │</div>
+              <div class="deep rounded-md text-slate-100 px-4 py-6 flex-1 flex flex-col justify-center">
+                <div class="label text-slate-400 mb-1">deep interface</div>
+                <div class="font-mono text-sm">Recipes.search_recipes(%{<br/>&nbsp;&nbsp;search:, difficulty:, prep_time:,<br/>&nbsp;&nbsp;favorites:, sort_by:}, actor:, page:)</div>
+                <div class="text-xs text-slate-400 mt-3">filter/sort semantics move into recipe.ex prepare+filter expr</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            <p><span class="label text-slate-400">Problem</span><br/>The recipe read action is too shallow to be useful — it takes no filter args, so 7 LiveViews pull all rows and re-implement search/difficulty/prep-time in-memory.</p>
+            <p><span class="label text-slate-400">Solution</span><br/>One Ash <span class="font-mono">read</span> action with <span class="font-mono">search / difficulty / prep_time / favorites / sort_by</span> arguments; call sites just assign the page.</p>
+          </div>
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside marker:text-emerald-500">
+            <li>leverage: one interface, 7 call sites</li>
+            <li>difficulty/prep rules become testable</li>
+            <li>removes try/rescue rule violation</li>
+            <li>interface shrinks; implementation absorbs filters</li>
+          </ul>
+          <div class="border-l-4 border-red-400 bg-red-50 px-4 py-2 text-sm text-red-900">
+            <span class="font-semibold">Rule violation:</span> <span class="font-mono">recipes_live.ex:53</span> wraps nested <span class="font-mono">case</span> on raw <span class="font-mono">{:ok,_}</span> in <span class="font-mono">try/rescue</span> — the exact shape CLAUDE.md forbids in LiveViews.
+          </div>
+        </article>
+
+        <!-- ---------- CANDIDATE 3: MealPlanning.Scheduler ---------- -->
+        <article id="c3" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">3 · <span class="font-mono text-lg">MealPlanning.Scheduler</span> — collapse four copy/fill variants</h2>
+            <span class="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800 font-medium">Strong</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-600 font-medium">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">meal_planner_live.ex:771-906 · focus_layout.ex:878-1033 · (meal_planning.ex domain)</p>
+
+          <!-- call-graph collapse -->
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4" style="min-height:320px">
+              <div class="label text-slate-400 mb-3">Before · one concept, four divergent copies</div>
+              <div class="space-y-2 text-xs">
+                <div class="border border-slate-200 rounded p-2">
+                  <div class="font-mono text-slate-700">copy_last_week <span class="text-slate-400">:795</span></div>
+                  <div class="text-red-600">+7d shift · does NOT skip occupied slots</div>
+                </div>
+                <div class="border border-slate-200 rounded p-2">
+                  <div class="font-mono text-slate-700">repeat_last_week <span class="text-slate-400">focus:917</span></div>
+                  <div class="text-red-600">Date.diff offset · DOES skip occupied slots</div>
+                </div>
+                <div class="border border-slate-200 rounded p-2">
+                  <div class="font-mono text-slate-700">auto_fill_week <span class="text-slate-400">:839</span></div>
+                  <div class="text-red-600">pantry-optimized greedy dedup (MapSet)</div>
+                </div>
+                <div class="border border-slate-200 rounded p-2">
+                  <div class="font-mono text-slate-700">auto_fill_day <span class="text-slate-400">focus:962</span></div>
+                  <div class="text-red-600">Enum.random(favorites)</div>
+                </div>
+                <div class="text-[0.7rem] text-slate-500 border-t border-slate-100 pt-2">"how does auto-fill pick a recipe?" has no single answer — it depends which layout fired the event.</div>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4 flex flex-col justify-center" style="min-height:320px">
+              <div class="label text-slate-400 mb-3">After · one module, explicit strategies</div>
+              <div class="deep rounded-md text-slate-100 p-4 space-y-3">
+                <div>
+                  <div class="label text-slate-400">interface</div>
+                  <div class="font-mono text-xs mt-1">Scheduler.copy_range(acct,<br/>&nbsp;&nbsp;from:, to:, on_conflict: :skip)</div>
+                </div>
+                <div class="border-t border-slate-700 pt-3">
+                  <div class="font-mono text-xs">Scheduler.fill_empty_slots(acct, week,<br/>&nbsp;&nbsp;strategy: :pantry_optimized | :random_favorite)</div>
+                </div>
+              </div>
+              <div class="text-xs text-slate-500 mt-3">Four scattered rules become one <span class="font-mono">strategy</span> argument. Selection logic unit-testable without a socket.</div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            <p><span class="label text-slate-400">Problem</span><br/>"Copy meals from a source range into a target range, skipping occupied slots" is implemented four times with divergent, undocumented rules across the LiveView and its layouts.</p>
+            <p><span class="label text-slate-400">Solution</span><br/>A <span class="font-mono">Scheduler</span> domain module with <span class="font-mono">copy_range</span> + <span class="font-mono">fill_empty_slots</span>; each layout handler shrinks to a call + flash.</p>
+          </div>
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside marker:text-emerald-500">
+            <li>locality: slot/date bugs fixed once</li>
+            <li>variants become one strategy arg</li>
+            <li>selection rule testable in isolation</li>
+            <li>handlers shrink to call + flash</li>
+          </ul>
+        </article>
+
+        <!-- ---------- CANDIDATE 4: RecipeChain / NotLoaded ---------- -->
+        <article id="c4" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">4 · <span class="font-mono text-lg">MealPlanning.RecipeChain</span> — stop the <span class="font-mono text-lg">NotLoaded</span> leak</h2>
+            <span class="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800 font-medium">Strong</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-600 font-medium">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">meal_planner_live.ex:1566-1662 (the <span class="text-red-600">:1609</span> pain point)</p>
+
+          <!-- hand-built leak diagram -->
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4 relative" style="min-height:320px">
+              <div class="label text-slate-400 mb-3">Before · view guards ORM loading state</div>
+              <div class="border border-slate-300 rounded p-3 mb-6">
+                <div class="label text-slate-500">MealPlannerLive (view)</div>
+                <div class="font-mono text-[0.7rem] text-slate-600 mt-2 space-y-1">
+                  <div>chain_follow_up_candidates(%{parent_recipe: p})</div>
+                  <div>chain_follow_up_candidates(%{recipe_ingredients: _})</div>
+                  <div class="bg-red-50 text-red-700 px-1 rounded">is_map(recipe.parent_recipe) # :1609</div>
+                </div>
+              </div>
+              <svg viewBox="0 0 100 30" class="w-full h-8"><line x1="20" y1="0" x2="20" y2="30" class="leak" stroke-width="2" marker-end="url(#ar)"/><defs><marker id="ar" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#dc2626"/></marker></defs></svg>
+              <div class="border border-red-300 bg-red-50 rounded p-3">
+                <div class="label text-red-600">Ash association structs</div>
+                <div class="font-mono text-[0.7rem] text-red-700 mt-1">parent_recipe · follow_up_recipes<br/>may be %Ash.NotLoaded{}</div>
+              </div>
+              <div class="text-[0.7rem] text-red-700 mt-3 font-semibold">is_map(%Ash.NotLoaded{}) == true → the :1609 guard does not protect against an unloaded association.</div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4 flex flex-col justify-center" style="min-height:320px">
+              <div class="label text-slate-400 mb-3">After · load requirement behind the seam</div>
+              <div class="deep rounded-md text-slate-100 p-4">
+                <div class="label text-slate-400">interface</div>
+                <div class="font-mono text-xs mt-1">RecipeChain.follow_up_candidates(recipe) → []</div>
+                <div class="font-mono text-xs mt-1">RecipeChain.base(recipe)</div>
+                <div class="text-xs text-slate-400 mt-3 border-t border-slate-700 pt-3">Ash calculation or load-guaranteed function. NotLoaded handled once; the four view clauses + slot helpers move inside.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            <p><span class="label text-slate-400">Problem</span><br/>The view hand-codes defensive matches over Ash's loading state; <span class="font-mono">is_map/1</span> is true for <span class="font-mono">%Ash.NotLoaded{}</span>, so the guard at :1609 is a latent bug — knowing which associations are loaded is part of a recipe's interface here.</p>
+            <p><span class="label text-slate-400">Solution</span><br/>A <span class="font-mono">RecipeChain</span> module (or Ash calculation) that enforces the load at the seam and returns <span class="font-mono">[]</span> safely.</p>
+          </div>
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside marker:text-emerald-500">
+            <li>closes the NotLoaded latent bug</li>
+            <li>ORM loading stops leaking to view</li>
+            <li>four clauses concentrate to one</li>
+            <li>slot helpers become testable</li>
+          </ul>
+        </article>
+
+        <!-- ---------- CANDIDATE 5: Shopping ---------- -->
+        <article id="c5" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">5 · <span class="font-mono text-lg">Shopping</span> — one transfer interface, one progress read</h2>
+            <span class="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800 font-medium">Worth exploring</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-600 font-medium">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">shopping_live.ex:135,191,270,301,322-388,359,419,454 · shopping.ex · inventory.ex</p>
+
+          <!-- cross-section: layered shallowness -->
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4" style="min-height:320px">
+              <div class="label text-slate-400 mb-3">Before · logic smeared up into the view</div>
+              <div class="space-y-2 text-xs font-mono">
+                <div class="border-l-4 border-red-300 bg-red-50 pl-2 py-1">get_shopping_list(load: [items, total, checked, progress]) <span class="text-red-500">×7</span></div>
+                <div class="border-l-4 border-red-300 bg-red-50 pl-2 py-1">transfer_to_inventory: build attrs inline</div>
+                <div class="border-l-4 border-red-300 bg-red-50 pl-2 py-1">Inventory.create_inventory_entry(authorize?: false)</div>
+                <div class="border-l-4 border-red-300 bg-red-50 pl-2 py-1">loop + tally match?({:ok,_}, r)</div>
+                <div class="border-l-4 border-red-300 bg-red-50 pl-2 py-1">check_all / uncheck_all reach into .items</div>
+                <div class="text-[0.7rem] text-red-700 mt-2 font-sans">22 raw <span class="font-mono">{:ok,_}</span> matches · the web layer owns a cross-domain write and the <span class="font-mono">authorize?:&nbsp;false</span> decision.</div>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4 flex flex-col justify-center gap-3" style="min-height:320px">
+              <div class="label text-slate-400">After · two deep interfaces</div>
+              <div class="deep rounded-md text-slate-100 p-3 font-mono text-xs">
+                Shopping.transfer_checked_items_to_inventory(<br/>&nbsp;&nbsp;list_id, storage_location_id, actor:)<br/>→ {:ok, %{added:, failed:}}
+              </div>
+              <div class="deep rounded-md text-slate-100 p-3 font-mono text-xs">
+                Shopping.get_list_with_progress(id, actor:)
+              </div>
+              <div class="text-xs text-slate-500 font-sans">One authorized boundary owns the cross-domain write; the 7× load-set becomes one interface.</div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            <p><span class="label text-slate-400">Problem</span><br/>"Transfer what I bought into stock" exists only inside the LiveView, which builds inventory attrs, reaches across domains, and re-loads the list with the same 7-key load-set seven times.</p>
+            <p><span class="label text-slate-400">Solution</span><br/>Move the transfer into a <span class="font-mono">Shopping</span> change and collapse the reloads into <span class="font-mono">get_list_with_progress/2</span>.</p>
+          </div>
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside marker:text-emerald-500">
+            <li>cross-domain write behind one seam</li>
+            <li>drops ~90 lines of tuple-threading</li>
+            <li>load-set stops being caller knowledge</li>
+            <li>transfer tally becomes testable</li>
+          </ul>
+        </article>
+
+        <!-- ---------- CANDIDATE 6: AI degradation policy ---------- -->
+        <article id="c6" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">6 · One degradation policy for the AI seam</h2>
+            <span class="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800 font-medium">Worth exploring</span>
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-600 font-medium">ports &amp; adapters</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">process_receipt.ex:71 · categorizer.ex:72,128 · receipt.ex:95 · application.ex:58 · receipt_live.ex:547,937,1054</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4" style="min-height:300px">
+              <div class="label text-slate-400 mb-3">Before · two contradictory definitions of "down"</div>
+              <div class="space-y-3 text-xs">
+                <div class="border border-emerald-200 bg-emerald-50 rounded p-2">
+                  <div class="font-mono text-emerald-800">categorizer</div>
+                  <div class="text-slate-600">gates on <span class="font-mono">enabled?()</span> → <span class="font-mono">{:error, :disabled}</span> (graceful)</div>
+                </div>
+                <div class="border border-red-200 bg-red-50 rounded p-2">
+                  <div class="font-mono text-red-800">extraction path</div>
+                  <div class="text-slate-600">no gate → <span class="font-mono">:failed</span> · burns 3 Oban attempts</div>
+                </div>
+                <div class="border border-slate-200 rounded p-2">
+                  <div class="font-mono text-slate-700">boot + each LiveView</div>
+                  <div class="text-slate-600">own health check · own <span class="font-mono">inspect(reason)</span> string</div>
+                </div>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-4 flex flex-col justify-center" style="min-height:300px">
+              <div class="label text-slate-400 mb-3">After · one policy owns "unavailable"</div>
+              <div class="deep rounded-md text-slate-100 p-4 font-mono text-xs space-y-2">
+                <div>AiClient.available?/0</div>
+                <div class="text-slate-400 font-sans text-[0.7rem]">extraction short-circuits to a distinct<br/><span class="font-mono text-slate-200">:awaiting_ai</span> state, not <span class="font-mono text-slate-200">:failed</span></div>
+                <div class="border-t border-slate-700 pt-2">one shared "AI features unavailable" message</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            <p><span class="label text-slate-400">Problem</span><br/>The optional-sidecar seam has no single owner of "unavailable": categorization degrades cleanly, extraction hard-fails and burns retries, and each caller invents its own message.</p>
+            <p><span class="label text-slate-400">Solution</span><br/>One <span class="font-mono">available?</span> policy so extraction short-circuits to <span class="font-mono">:awaiting_ai</span> and views share one message.</p>
+          </div>
+          <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-slate-700 list-disc list-inside marker:text-emerald-500">
+            <li>locality: one down-policy</li>
+            <li>stops burning Oban attempts</li>
+            <li>receipts recoverable, not failed</li>
+            <li>one degraded message, not three</li>
+          </ul>
+          <div class="border-l-4 border-slate-300 bg-slate-100 px-4 py-2 text-sm text-slate-700">
+            Finding is a <span class="font-semibold">missing seam</span>, not a shallow one — nothing to delete; the policy simply doesn't exist as a module yet.
+          </div>
+        </article>
+
+      </section>
+
+      <!-- ================= TOP RECOMMENDATION ================= -->
+      <section id="top-recommendation" class="pt-4">
+        <div class="rounded-xl deep text-slate-100 p-8 space-y-4">
+          <div class="label text-emerald-400">Tackle first</div>
+          <h2 class="text-3xl font-serif">2 · <a href="#c2" class="underline decoration-emerald-500 decoration-2 underline-offset-4">Recipes.search_recipes/2</a></h2>
+          <p class="text-slate-300 max-w-3xl leading-relaxed">
+            Highest leverage in the codebase — one deep read action collapses the same search/difficulty/prep-time logic re-implemented across <span class="text-white font-semibold">seven</span> LiveViews, including the hottest module (<span class="font-mono">meal_planner</span>'s explorer layout). It also erases a direct CLAUDE.md rule violation (the <span class="font-mono">try/rescue</span> at <span class="font-mono">recipes_live.ex:53</span>), and the target shape is proven — <span class="font-mono">meal_planner_recipes</span> already takes filter arguments in <span class="font-mono">recipe.ex:152</span>. Do it the way <span class="font-mono">Analytics</span> is already done.
+        </p>
+          <p class="text-slate-400 text-sm">Close second: <a href="#c1" class="underline decoration-slate-500 underline-offset-2">candidate 1</a> — a full anti-corruption layer already exists (<span class="font-mono">contracts.ex</span>) but sits dead while raw sidecar JSON leaks into the domain.</p>
+        </div>
+      </section>
+
+      <footer class="text-xs text-slate-400 pt-8 border-t border-slate-200">
+        Read-only architectural review · no code changed · vocabulary per <span class="font-mono">/codebase-design</span> · no CONTEXT.md or ADRs present in repo.
+      </footer>
+    </main>
+  </body>
+</html>
