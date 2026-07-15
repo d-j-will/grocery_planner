@@ -1,6 +1,6 @@
 # AI-006: Receipt Pipeline Rework — staged workers, honest contract
 
-**Status:** design in progress — §1–4 settled, §5 firm, §6–7 captured
+**Status:** design in progress — §1–4 settled (Arc 2 unblocked), §5 firm, §6–7 captured
 **Date:** 2026-07-16
 **Supersedes the pipeline built in:** AI-003 (`4a51ab8`)
 **Related cards:** `reactor-is-not-durable-oban-owns-durability-defer-sagas-until-a-step-has-a-committed-side-effect`, `architectural-decisions-live-in-org-brain-not-in-repo-adr-files`
@@ -132,19 +132,61 @@ These states deliberately do **not** mirror "extracting…"/"matching…". Oban 
 knows what is executing; duplicating that into the receipt would be a second source of
 truth — the failure this whole spec exists to remove.
 
-> **OPEN — milestone vs condition.** `:failed` and `:awaiting_ai` are **not milestones**
-> — they're conditions orthogonal to progress. A receipt "awaiting AI" has still only
-> reached `:pending`; one that failed did so *at* some milestone. Cramming both meanings
-> into one enum is exactly what `:processing` does wrong, and it would reproduce the bug
-> in a new coat. Options: (a) `status` = milestone + a separate `condition`
-> (`:ok | :awaiting_ai | :failed`) with `failure_reason`; (b) keep one enum and accept
-> that failure loses the progress information. Leaning (a). Settle before implementing.
+### 2a. Milestone vs condition — SETTLED: two fields
 
-> **OPEN — where `categorise` fits.** It is *degradable* (the sidecar may be off), so
-> `:ready_for_review` must **not** depend on it. Proposal: `match` sets
-> `:ready_for_review` and enqueues `categorise`, which enriches items in place and
-> broadcasts; its failure never blocks the user. That removes a separate `:matched`
-> milestone — which in turn changes the reconciler's `where`. Confirm before building.
+`:failed` and `:awaiting_ai` are **not milestones**. A receipt "awaiting AI" has still
+only reached `:pending`; one that failed did so *at* some milestone. One enum meaning
+two things is exactly what `:processing` does wrong.
+
+| Field | Values | Behaviour |
+|---|---|---|
+| `status` | `:pending → :extracted → :items_created → :ready_for_review → :confirmed` | **Monotonic.** Only ever advances. |
+| `condition` | `:ok` (default) / `:awaiting_ai` / `:failed` | Orthogonal, resettable. |
+| `failure_reason` | string | `nil` unless `condition == :failed`. |
+
+Invariants (Ash validations): `condition == :failed` requires a `failure_reason`, and
+implies `status != :confirmed`.
+
+**Why this is strictly better than today.** A failed receipt becomes
+`status: :extracted, condition: :failed` — it tells you it got as far as extraction and
+then failed. Today's flat `:failed` throws that away.
+
+**Retry falls out for free:** set `condition: :ok` and re-enqueue. The milestone is
+preserved, so idempotent stages resume exactly where they stopped — no bespoke
+resume logic.
+
+> **Honest caveat, stated so it doesn't rot into a bug.** `:awaiting_ai` *is* a
+> denormalised projection of Oban state (the extract job is snoozing). We accept the
+> duplication deliberately: single-writer (the extract stage), for two reads Oban can't
+> serve well — the LiveView, which shouldn't query the jobs table per receipt, and the
+> operator metric in §4c.
+>
+> **The rule that keeps it honest: nothing may read `condition` to make a scheduling
+> decision.** Oban remains authoritative for whether and when to retry. `condition` is
+> display and alerting only. The moment a worker branches on it, it's a second source of
+> truth and we've rebuilt the bug this spec exists to remove.
+
+### 2b. Where `categorise` fits — SETTLED: side-branch, no milestone
+
+`match` sets `:ready_for_review` **and** enqueues `categorise`. Categorise enriches items
+in place and broadcasts so the LiveView updates live. It has **no milestone**, and its
+failure sets **no condition** on the receipt — a receipt with no AI-suggested categories
+is still perfectly reviewable, which is exactly what happens today when the sidecar is
+off (`receipt_processor.ex:138` already gates on `Categorizer.enabled?()`).
+
+This removes the separate `:matched` milestone.
+
+This stage is also `c29`'s fix for the categorisation path, and it's mostly subtraction:
+`Task.start` (unsupervised, silently lost on crash, invisible) becomes an Oban job
+(supervised, retryable, observable). The degradation behaviour it already has is
+preserved; only the execution model improves.
+
+**Reconciler `where`** follows from the above:
+`status in [:pending, :extracted, :items_created] and condition != :failed and
+updated_at < ago(5, :minute)`.
+
+A receipt at `:ready_for_review` whose categorise never ran is **not** stranded — it's
+reviewable. Don't reconcile it.
 
 **Inter-stage handoff:** add **`receipt.raw_extraction` (jsonb)**. `extract` writes it
 plus the milestone; `persist` reads it. Oban `args` carry only `receipt_id` — a large
@@ -171,10 +213,30 @@ This kills all three `cxk` bugs mechanically rather than by care:
 - **Stuck** — a receipt sits at a *named* milestone, so "stranded at `:extracted` for 10
   minutes" is a query.
 
-**Belt-and-braces:** a unique index on `(receipt_id, line_no)` makes duplicates
-impossible at the DB level even if the logic later regresses. Needs a decision on
-re-extraction semantics (does a retried extract replace existing items, or conflict?) —
-settle explicitly rather than discover. **OPEN.**
+### Belt-and-braces: `line_no` + a unique index — SETTLED
+
+**Add `receipt_item.line_no` (integer, position in the extraction) and a unique index on
+`(receipt_id, line_no)`.**
+
+The obvious cheaper key is wrong: **a real receipt can legitimately have two identical
+lines** — buy two milks rung up separately and you get `MILK / 1 / 3.99` twice. Any
+uniqueness over `(receipt_id, raw_name, …)` would reject valid data. Position is the
+only honest key, and it needs a column: `receipt_item` has **no** ordering attribute
+today (no `line_no`, no `sort_order`).
+
+**`line_no` earns its place on domain grounds regardless of idempotency.** Neither
+`list_for_receipt` nor the `has_many :receipt_items` applies a sort, so items come back
+in arbitrary Postgres order — the review screen doesn't match the paper receipt in the
+user's hand. That's a latent UX bug that `line_no` fixes; the duplicate-proofing is a
+free side-benefit rather than the justification.
+
+**Re-extraction semantics.** Retry can never re-extract: once `status == :extracted` the
+extract stage's postcondition check no-ops, so items are created exactly once, at
+`:items_created`. There is no conflict to resolve on the retry path.
+
+An explicit user **rescan** is a *different operation*, not a retry: it deletes existing
+items and resets `status` to `:pending` in one transaction. Distinct action, distinct
+semantics, no index conflict. Do not model it as a retry.
 
 **Lifeline:** free `Oban.Plugins.Lifeline` rescues jobs stuck `executing` after a
 container restart — directly `cxk`'s stuck symptom. Its documented duplicate-execution
@@ -273,7 +335,7 @@ Without this, a receipt that snoozed through a deploy and then hit one genuine e
 would sit un-retried for days, looking exactly like the stuck-in-processing bug we're
 here to remove.
 
-## 5. Contract fix — OPEN (prerequisite)
+## 5. Contract fix — FIRM (Arc 1, prerequisite)
 
 Producer-first. The pipeline cannot be honest on a payload that lies.
 
