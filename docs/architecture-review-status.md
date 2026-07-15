@@ -7,8 +7,11 @@ _Status verified against code: 2026-07-15_
 by events, and in both cases the shipped code is *right* and the review is *wrong*.
 Following the HTML as written would make the codebase worse in two places.
 
-Also stale: the HTML footer says "no CONTEXT.md or ADRs present in repo". Both now
-exist (`CONTEXT.md`, `docs/adr/`).
+Also stale: the HTML footer says "no CONTEXT.md or ADRs present in repo". `CONTEXT.md`
+now exists. `docs/adr/` does **not** exist, despite CLAUDE.md and `docs/agents/domain.md`
+both pointing there — the ADRs lived in `specs/architecture.md` and were removed
+2026-07-15 as stale (ADR 1 and ADR 3 were false statements about the system; see git
+history for the originals).
 
 ## Summary
 
