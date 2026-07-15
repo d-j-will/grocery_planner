@@ -228,3 +228,24 @@ bd close <id>         # Complete work
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
 <!-- END BEADS INTEGRATION -->
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in **beads** (`bd`). GitHub Issues are not used and are not a source of
+truth. See `docs/agents/issue-tracker.md` and the Beads section below.
+
+### Triage labels
+
+Default canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), applied via `bd -l/--add-label`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: `CONTEXT.md` at repo root. See `docs/agents/domain.md`.
+
+Architectural decisions live in **org-brain** (`search_cards` / `draft_card`), not in
+this repo — they need an owner and a lifecycle (revise, flag stale, supersede) that a
+markdown file doesn't have. There is no `docs/adr/`. In-repo docs are for what's true
+by construction and versioned with the code; if a doc can silently go false while CI
+stays green, it belongs in a card.
