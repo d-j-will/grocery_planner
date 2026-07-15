@@ -216,6 +216,130 @@ defmodule GroceryPlanner.AI.CategorizerTest do
     end
   end
 
+  describe "predict/2 response normalization" do
+    setup do
+      original = Application.get_env(:grocery_planner, :features)
+
+      Application.put_env(:grocery_planner, :features,
+        ai_categorization: true,
+        semantic_search: false
+      )
+
+      on_exit(fn -> Application.put_env(:grocery_planner, :features, original || []) end)
+      :ok
+    end
+
+    defp stub_predict(payload) do
+      Req.Test.stub(AiClient, fn conn ->
+        Req.Test.json(conn, %{
+          "request_id" => "req_test",
+          "status" => "success",
+          "payload" => payload
+        })
+      end)
+    end
+
+    test "coerces integer confidence to float and derives level" do
+      stub_predict(%{"category" => "Dairy", "confidence" => 1})
+
+      assert {:ok, prediction} = Categorizer.predict("Milk", plug: {Req.Test, AiClient})
+      assert prediction.confidence === 1.0
+      assert prediction.confidence_level == :high
+    end
+
+    test "defaults null/missing confidence to 0.0 with :low level" do
+      stub_predict(%{"category" => "Dairy", "confidence" => nil})
+
+      assert {:ok, prediction} = Categorizer.predict("Milk", plug: {Req.Test, AiClient})
+      assert prediction.confidence === 0.0
+      assert prediction.confidence_level == :low
+    end
+
+    test "derives confidence_level, ignoring the server confidence_level string" do
+      stub_predict(%{
+        "category" => "Dairy",
+        "confidence" => 0.3,
+        "confidence_level" => "totally_bogus"
+      })
+
+      assert {:ok, prediction} = Categorizer.predict("Milk", plug: {Req.Test, AiClient})
+      assert prediction.confidence_level == :low
+    end
+
+    test "ignores unexpected extra keys in the payload without raising" do
+      stub_predict(%{
+        "category" => "Dairy",
+        "confidence" => 0.9,
+        "some_brand_new_field_the_server_added" => "surprise"
+      })
+
+      assert {:ok, prediction} = Categorizer.predict("Milk", plug: {Req.Test, AiClient})
+      assert prediction.category == "Dairy"
+    end
+
+    test "returns {:error, :invalid_prediction} when category is missing" do
+      stub_predict(%{"confidence" => 0.9})
+
+      assert {:error, :invalid_prediction} =
+               Categorizer.predict("Milk", plug: {Req.Test, AiClient})
+    end
+  end
+
+  describe "predict_batch/2 response normalization" do
+    setup do
+      original = Application.get_env(:grocery_planner, :features)
+
+      Application.put_env(:grocery_planner, :features,
+        ai_categorization: true,
+        semantic_search: false
+      )
+
+      on_exit(fn -> Application.put_env(:grocery_planner, :features, original || []) end)
+      :ok
+    end
+
+    test "coerces integer confidence, derives level, and ignores extra keys" do
+      Req.Test.stub(AiClient, fn conn ->
+        Req.Test.json(conn, %{
+          "request_id" => "req_batch_test",
+          "status" => "success",
+          "payload" => %{
+            "predictions" => [
+              %{
+                "id" => "1",
+                "name" => "whole milk",
+                "predicted_category" => "Dairy",
+                "confidence" => 1,
+                "confidence_level" => "totally_bogus",
+                "unexpected_field" => "surprise"
+              }
+            ]
+          }
+        })
+      end)
+
+      assert {:ok, [result]} =
+               Categorizer.predict_batch(["whole milk"], plug: {Req.Test, AiClient})
+
+      assert result.category == "Dairy"
+      assert result.confidence === 1.0
+      assert result.confidence_level == :high
+    end
+
+    test "returns {:error, :invalid_batch_response} when predictions is not a list" do
+      Req.Test.stub(AiClient, fn conn ->
+        Req.Test.json(conn, %{
+          "request_id" => "req_batch_test",
+          "status" => "success",
+          "payload" => %{"predictions" => "not a list"}
+        })
+      end)
+
+      assert {:error, :invalid_batch_response} =
+               Categorizer.predict_batch(["whole milk"], plug: {Req.Test, AiClient})
+    end
+  end
+
   describe "default_candidate_labels/0" do
     test "returns a list of category strings" do
       labels = Categorizer.default_candidate_labels()

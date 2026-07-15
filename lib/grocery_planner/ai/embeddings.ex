@@ -39,6 +39,18 @@ defmodule GroceryPlanner.AI.Embeddings do
       {:ok, %{embeddings: [%{vector: vector} | _]}} ->
         {:ok, vector}
 
+      {:ok, %{"embeddings" => []}} ->
+        Logger.warning("Embedding generation returned no embeddings")
+        {:error, :no_embedding}
+
+      {:ok, %{embeddings: []}} ->
+        Logger.warning("Embedding generation returned no embeddings")
+        {:error, :no_embedding}
+
+      {:ok, _other} ->
+        Logger.warning("Embedding generation returned an unexpected response shape")
+        {:error, :unexpected_embedding_response}
+
       {:error, reason} ->
         Logger.warning("Embedding generation failed: #{inspect(reason)}")
         {:error, reason}
@@ -64,6 +76,10 @@ defmodule GroceryPlanner.AI.Embeddings do
 
       {:ok, %{embeddings: embeddings}} ->
         {:ok, Enum.map(embeddings, fn e -> %{id: e.id, vector: e.vector} end)}
+
+      {:ok, _other} ->
+        Logger.warning("Batch embedding generation returned an unexpected response shape")
+        {:error, :unexpected_embedding_response}
 
       {:error, reason} ->
         {:error, reason}

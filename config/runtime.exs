@@ -31,6 +31,12 @@ config :grocery_planner,
        :receipt_upload_dir,
        System.get_env("RECEIPT_STORAGE_PATH", "priv/static/uploads/receipts")
 
+# AI Service Configuration — set in all environments so the AiClient base URL
+# is resolved consistently (dev/test/prod) rather than only under :prod.
+config :grocery_planner,
+       :ai_service_url,
+       System.get_env("AI_SERVICE_URL") || "http://localhost:8000"
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
@@ -81,11 +87,6 @@ if config_env() == :prod do
       port: port
     ],
     secret_key_base: secret_key_base
-
-  # AI Service Configuration
-  config :grocery_planner,
-         :ai_service_url,
-         System.get_env("AI_SERVICE_URL") || "http://localhost:8000"
 
   # ## SSL Support
   #

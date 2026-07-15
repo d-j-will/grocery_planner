@@ -237,6 +237,27 @@ defmodule GroceryPlanner.AI.EmbeddingsTest do
       Application.put_env(:grocery_planner, :features, original)
     end
 
+    test "returns {:error, :no_embedding} for an empty embeddings list without raising" do
+      original = Application.get_env(:grocery_planner, :features)
+
+      Application.put_env(:grocery_planner, :features,
+        semantic_search: true,
+        ai_categorization: false
+      )
+
+      plug = fn conn ->
+        {:ok, _body, conn} = Plug.Conn.read_body(conn)
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"embeddings" => []}))
+      end
+
+      assert {:error, :no_embedding} = Embeddings.generate("test", plug: plug)
+
+      Application.put_env(:grocery_planner, :features, original)
+    end
+
     test "handles error response" do
       original = Application.get_env(:grocery_planner, :features)
 

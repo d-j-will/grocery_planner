@@ -93,8 +93,7 @@ defmodule GroceryPlanner.AI.Categorizer do
 
     case AiClient.categorize_item(item_name, candidate_labels, context, client_opts) do
       {:ok, response} ->
-        prediction = parse_prediction(response)
-        {:ok, prediction}
+        normalize_prediction(response)
 
       {:error, reason} ->
         Logger.warning("Categorization failed for '#{item_name}': #{inspect(reason)}")
@@ -157,8 +156,7 @@ defmodule GroceryPlanner.AI.Categorizer do
 
     case AiClient.categorize_batch(items, candidate_labels, context, client_opts) do
       {:ok, response} ->
-        results = parse_batch_response(response)
-        {:ok, results}
+        normalize_batch(response)
 
       {:error, reason} ->
         Logger.warning("Batch categorization failed: #{inspect(reason)}")
@@ -202,48 +200,61 @@ defmodule GroceryPlanner.AI.Categorizer do
   def default_candidate_labels, do: @default_candidate_labels
 
   # Private functions
+  #
+  # Anti-corruption layer for the AI sidecar's JSON-decoded (string-keyed)
+  # responses. These normalizers never raise: they coerce values into the
+  # public prediction/batch_result shapes and default anything malformed.
+  # confidence_level is ALWAYS derived from the normalized confidence float
+  # via the public confidence_level/1, never read from the server payload.
 
-  defp parse_prediction(%{"payload" => payload}) do
-    confidence = payload["confidence"]
+  defp normalize_prediction(response) do
+    payload = as_map(Map.get(response, "payload", %{}))
+    category = Map.get(payload, "category")
+    confidence = normalize_confidence(Map.get(payload, "confidence"))
+
+    if is_binary(category) and category != "" do
+      {:ok,
+       %{
+         category: category,
+         confidence: confidence,
+         confidence_level: confidence_level(confidence)
+       }}
+    else
+      {:error, :invalid_prediction}
+    end
+  end
+
+  defp normalize_batch(response) do
+    payload = as_map(Map.get(response, "payload", %{}))
+    predictions = Map.get(payload, "predictions")
+
+    if is_list(predictions) do
+      {:ok, Enum.map(predictions, &normalize_batch_prediction/1)}
+    else
+      {:error, :invalid_batch_response}
+    end
+  end
+
+  defp normalize_batch_prediction(pred) when is_map(pred) do
+    confidence = normalize_confidence(Map.get(pred, "confidence"))
 
     %{
-      category: payload["category"],
+      id: Map.get(pred, "id"),
+      name: Map.get(pred, "name"),
+      category: Map.get(pred, "predicted_category"),
       confidence: confidence,
       confidence_level: confidence_level(confidence)
     }
   end
 
-  defp parse_prediction(%{payload: payload}) do
-    confidence = payload.confidence
-
-    %{
-      category: payload.category,
-      confidence: confidence,
-      confidence_level: confidence_level(confidence)
-    }
+  defp normalize_batch_prediction(_pred) do
+    %{id: nil, name: nil, category: nil, confidence: 0.0, confidence_level: :low}
   end
 
-  defp parse_batch_response(%{"payload" => %{"predictions" => predictions}}) do
-    Enum.map(predictions, fn pred ->
-      %{
-        id: pred["id"],
-        name: pred["name"],
-        category: pred["predicted_category"],
-        confidence: pred["confidence"],
-        confidence_level: String.to_existing_atom(pred["confidence_level"])
-      }
-    end)
-  end
+  defp normalize_confidence(confidence) when is_float(confidence), do: confidence
+  defp normalize_confidence(confidence) when is_integer(confidence), do: confidence * 1.0
+  defp normalize_confidence(_confidence), do: 0.0
 
-  defp parse_batch_response(%{payload: %{predictions: predictions}}) do
-    Enum.map(predictions, fn pred ->
-      %{
-        id: pred.id,
-        name: pred.name,
-        category: pred.predicted_category,
-        confidence: pred.confidence,
-        confidence_level: String.to_existing_atom(pred.confidence_level)
-      }
-    end)
-  end
+  defp as_map(map) when is_map(map), do: map
+  defp as_map(_other), do: %{}
 end

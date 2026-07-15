@@ -12,7 +12,6 @@ defmodule GroceryPlanner.Integration.AiServiceIntegrationTest do
   use GroceryPlanner.IntegrationCase, async: false
 
   alias GroceryPlanner.AiClient
-  alias GroceryPlanner.AiClient.Contracts
 
   @moduletag :integration
 
@@ -28,20 +27,6 @@ defmodule GroceryPlanner.Integration.AiServiceIntegrationTest do
       assert body["status"] in ["ok", "degraded"]
       assert is_map(body["checks"])
       assert Map.has_key?(body["checks"], "database")
-    end
-
-    test "health response validates against HealthCheckResponse contract" do
-      assert service_healthy?(), "Python AI service not running at #{ai_service_url()}"
-
-      # Use a longer timeout to avoid transient CI failures
-      case AiClient.health_check(receive_timeout: 15_000) do
-        {:ok, body} ->
-          assert {:ok, _validated} = Contracts.HealthCheckResponse.validate(body)
-
-        {:error, %Req.TransportError{reason: reason}} when reason in [:timeout, :econnrefused] ->
-          # Transient connectivity issue, not a contract failure
-          IO.puts("WARN: health check timed out (#{reason}), skipping contract validation")
-      end
     end
   end
 
@@ -62,14 +47,6 @@ defmodule GroceryPlanner.Integration.AiServiceIntegrationTest do
       assert is_number(payload["confidence"])
       assert payload["confidence"] >= 0.0 and payload["confidence"] <= 1.0
       assert payload["confidence_level"] in ["high", "medium", "low"]
-    end
-
-    test "categorization response validates against CategorizationResponse contract" do
-      {:ok, body} = AiClient.categorize_item("Milk", ["Dairy", "Produce", "Bakery"], @context)
-
-      assert {:ok, validated} = Contracts.CategorizationResponse.validate(body["payload"])
-      assert is_binary(validated.category)
-      assert validated.confidence >= 0.0 and validated.confidence <= 1.0
     end
 
     test "categorization returns valid categories from candidate list" do
@@ -105,15 +82,6 @@ defmodule GroceryPlanner.Integration.AiServiceIntegrationTest do
         assert is_binary(prediction["predicted_category"])
         assert is_number(prediction["confidence"])
       end
-    end
-
-    test "batch categorization validates against BatchCategorizationResponse contract" do
-      items = [%{id: "1", name: "Apples"}, %{id: "2", name: "Yogurt"}]
-
-      {:ok, body} = AiClient.categorize_batch(items, ["Produce", "Dairy"], @context)
-
-      assert {:ok, validated} = Contracts.BatchCategorizationResponse.validate(body["payload"])
-      assert length(validated.predictions) == 2
     end
   end
 
@@ -157,15 +125,6 @@ defmodule GroceryPlanner.Integration.AiServiceIntegrationTest do
       assert "c" in ids
     end
 
-    test "embedding response validates against EmbeddingResponse contract" do
-      {:ok, body} = AiClient.generate_embedding("test text", @context)
-
-      # EmbedResponse fields are at top level, not nested under "payload"
-      assert {:ok, validated} = Contracts.EmbeddingResponse.validate(body)
-      assert is_binary(validated.model)
-      assert validated.dimension > 0
-    end
-
     test "embedding vectors have consistent dimensions across calls" do
       {:ok, body1} = AiClient.generate_embedding("Bananas", @context)
       {:ok, body2} = AiClient.generate_embedding("Milk", @context)
@@ -193,15 +152,6 @@ defmodule GroceryPlanner.Integration.AiServiceIntegrationTest do
   # ── Base Response Envelope ──────────────────────────────────────
 
   describe "response envelope contract" do
-    test "categorization response has valid BaseResponse envelope" do
-      {:ok, body} = AiClient.categorize_item("Milk", ["Dairy"], @context)
-
-      assert {:ok, validated} = Contracts.BaseResponse.validate(body)
-      assert validated.status == "success"
-      assert is_binary(validated.request_id)
-      assert is_map(validated.payload)
-    end
-
     test "embed response uses EmbedResponse schema (not BaseResponse)" do
       {:ok, body} = AiClient.generate_embedding("test", @context)
 

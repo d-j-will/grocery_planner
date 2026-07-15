@@ -149,7 +149,7 @@ defmodule GroceryPlanner.AiClient do
   end
 
   defp client(opts) do
-    base_url = System.get_env("AI_SERVICE_URL") || @default_url
+    base_url = Application.get_env(:grocery_planner, :ai_service_url) || @default_url
 
     # In test env, merge global test plug config so LiveView internal calls
     # (which don't pass plug: explicitly) still hit Req.Test stubs.
@@ -186,7 +186,7 @@ defmodule GroceryPlanner.AiClient do
   end
 
   defp handle_response({:ok, %Req.Response{status: status, body: body}}) do
-    Logger.error("AI Service Error (#{status}): #{inspect(body)}")
+    Logger.error("AI Service Error (#{status})")
     {:error, body}
   end
 
