@@ -134,8 +134,40 @@ def test_extract_receipt(client):
         response = client.post("/api/v1/extract-receipt", json=request_data)
     assert response.status_code == 200
     data = response.json()
-    assert len(data["payload"]["items"]) > 0
-    assert data["payload"]["total"] == 5.48
+    payload = data["payload"]
+    assert len(payload["items"]) > 0
+    assert payload["total"] == 5.48
+
+    # Enriched flat contract (AI-006 §5): these fields cross the wire so the
+    # Elixir receipt's columns stop being permanently nil.
+    assert payload["currency"] == "USD"
+    assert isinstance(payload["raw_ocr_text"], str)
+    assert 0.0 <= payload["overall_confidence"] <= 1.0
+    assert payload["model_version"]  # populated on every branch
+    assert payload["processing_time_ms"] >= 0
+
+
+def test_extraction_response_payload_contract():
+    """Pin the flat wire contract consumed by GroceryPlanner.Inventory.ReceiptProcessor.
+
+    This is the Python half of the AI-006 Arc 1 contract test. The Elixir
+    consumer half lives in receipt_processor_test.exs ("contract:" describe).
+    The whole AI-006 defect class was the two sides diverging while both looked
+    green — so a renamed or dropped field here must fail loudly.
+    """
+    from schemas import ExtractionResponsePayload
+
+    assert set(ExtractionResponsePayload.model_fields.keys()) == {
+        "items",
+        "total",
+        "merchant",
+        "date",
+        "currency",
+        "raw_ocr_text",
+        "overall_confidence",
+        "model_version",
+        "processing_time_ms",
+    }
 
 
 # =============================================================================

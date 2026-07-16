@@ -504,7 +504,10 @@ async def extract_receipt_endpoint(request: BaseRequest, db: Session = Depends(g
                 items=[ExtractedItem(**item) for item in result["items"]],
                 total=result["total"],
                 merchant=result["merchant"],
-                date=result["date"]
+                date=result["date"],
+                currency=result.get("currency", "USD"),
+                raw_ocr_text=result.get("raw_ocr_text", ""),
+                overall_confidence=result.get("overall_confidence", 0.0),
             )
         elif settings.USE_TESSERACT_OCR:
             # Tesseract OCR fallback
@@ -560,12 +563,18 @@ async def extract_receipt_endpoint(request: BaseRequest, db: Session = Depends(g
 
                     merchant_val = result.merchant.name if result.merchant else None
                     date_val = result.date.value if result.date else None
+                    # The full ExtractionResult holds these; stop discarding them
+                    # to fit the narrow shape (AI-006 §5).
+                    currency_val = result.total.currency if result.total else "USD"
 
                     response_payload = ExtractionResponsePayload(
                         items=flat_items,
                         total=total_val,
                         merchant=merchant_val,
                         date=date_val,
+                        currency=currency_val,
+                        raw_ocr_text=result.raw_ocr_text,
+                        overall_confidence=result.overall_confidence,
                     )
 
                     model_id = "tesseract-ocr"
@@ -603,10 +612,20 @@ async def extract_receipt_endpoint(request: BaseRequest, db: Session = Depends(g
                 items=mock_items,
                 total=5.48,
                 merchant="Mock Supermarket",
-                date="2024-01-01"
+                date="2024-01-01",
+                currency="USD",
+                raw_ocr_text="Mock Supermarket\nBananas 1.99\nMilk 3.49",
+                overall_confidence=0.95,
             )
 
         latency_ms = (time.time() - start_time) * 1000
+
+        # Surface model + timing on the wire (all branches). These were already
+        # computed for the artifact write; the flat contract now returns them so
+        # the Elixir receipt's model_version / processing_time_ms columns stop
+        # being permanently nil (AI-006 §5).
+        response_payload.model_version = model_version
+        response_payload.processing_time_ms = latency_ms
 
         # Store artifact
         create_artifact(

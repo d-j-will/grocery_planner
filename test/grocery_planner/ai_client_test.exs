@@ -143,8 +143,11 @@ defmodule GroceryPlanner.AiClientTest do
       end)
 
       items = Enum.map(1..51, &%{id: "#{&1}", name: "Item #{&1}"})
-      assert {:error, body} = AiClient.categorize_batch(items, ["Produce"], @context)
-      assert body["error"] == "batch_too_large"
+      # 400 is classified as bad input (§4a); detail carries the decoded body.
+      assert {:error, {:bad_input, detail}} =
+               AiClient.categorize_batch(items, ["Produce"], @context)
+
+      assert detail["error"] == "batch_too_large"
     end
   end
 
@@ -161,6 +164,8 @@ defmodule GroceryPlanner.AiClientTest do
         assert decoded["feature"] == "extraction"
         assert decoded["payload"]["image_base64"] == fake_image
 
+        # Flat wire shape (schemas.py ExtractionResponsePayload) — the only
+        # receipt shape the sidecar emits.
         Req.Test.json(conn, %{
           "request_id" => decoded["request_id"],
           "status" => "success",
@@ -168,23 +173,27 @@ defmodule GroceryPlanner.AiClientTest do
             "merchant" => "Trader Joe's",
             "date" => "2026-01-15",
             "total" => 47.82,
-            "line_items" => [
+            "currency" => "USD",
+            "raw_ocr_text" => "TRADER JOE'S\nBANANAS ORG\nMILK WHL GAL",
+            "overall_confidence" => 0.87,
+            "model_version" => "tesseract-5.3.0",
+            "processing_time_ms" => 812.0,
+            "items" => [
               %{
-                "raw_text" => "BANANAS ORG",
-                "parsed_name" => "Organic Bananas",
+                "name" => "Organic Bananas",
                 "quantity" => 1,
                 "unit" => "bunch",
+                "price" => 2.99,
                 "confidence" => 0.90
               },
               %{
-                "raw_text" => "MILK WHL GAL",
-                "parsed_name" => "Whole Milk Gallon",
+                "name" => "Whole Milk Gallon",
                 "quantity" => 1,
                 "unit" => "each",
+                "price" => 4.49,
                 "confidence" => 0.85
               }
-            ],
-            "overall_confidence" => 0.87
+            ]
           }
         })
       end)
@@ -192,7 +201,8 @@ defmodule GroceryPlanner.AiClientTest do
       assert {:ok, body} = AiClient.extract_receipt(fake_image, @context)
       payload = body["payload"]
       assert payload["merchant"] == "Trader Joe's"
-      assert length(payload["line_items"]) == 2
+      assert payload["currency"] == "USD"
+      assert length(payload["items"]) == 2
       assert payload["overall_confidence"] > 0.0
     end
 
@@ -210,8 +220,9 @@ defmodule GroceryPlanner.AiClientTest do
         )
       end)
 
-      assert {:error, body} = AiClient.extract_receipt("bad_data", @context)
-      assert body["error"] == "ocr_failed"
+      # 500 is a transient server error (§4a); detail carries the decoded body.
+      assert {:error, {:transient, detail}} = AiClient.extract_receipt("bad_data", @context)
+      assert detail["error"] == "ocr_failed"
     end
   end
 
@@ -376,8 +387,9 @@ defmodule GroceryPlanner.AiClientTest do
         |> Plug.Conn.send_resp(429, Jason.encode!(%{"error" => "rate_limited"}))
       end)
 
-      assert {:error, body} = AiClient.submit_job("categorize", %{}, @context)
-      assert body["error"] == "rate_limited"
+      # 429 is a 4xx -> bad input (§4a); detail carries the decoded body.
+      assert {:error, {:bad_input, detail}} = AiClient.submit_job("categorize", %{}, @context)
+      assert detail["error"] == "rate_limited"
     end
   end
 
@@ -410,8 +422,9 @@ defmodule GroceryPlanner.AiClientTest do
         |> Plug.Conn.send_resp(404, Jason.encode!(%{"error" => "job_not_found"}))
       end)
 
-      assert {:error, body} = AiClient.get_job("nonexistent", @context)
-      assert body["error"] == "job_not_found"
+      # 404 is a 4xx -> bad input (§4a); detail carries the decoded body.
+      assert {:error, {:bad_input, detail}} = AiClient.get_job("nonexistent", @context)
+      assert detail["error"] == "job_not_found"
     end
   end
 
@@ -495,7 +508,7 @@ defmodule GroceryPlanner.AiClientTest do
       assert {:error, _} = AiClient.health_check()
     end
 
-    test "functions return {:error, body} on 4xx/5xx responses" do
+    test "functions return {:error, _} on 4xx/5xx responses" do
       for status <- [400, 403, 404, 422, 429, 500, 502, 503] do
         Req.Test.stub(AiClient, fn conn ->
           conn
@@ -506,6 +519,69 @@ defmodule GroceryPlanner.AiClientTest do
         assert {:error, _} = AiClient.categorize_item("x", ["A"], @context),
                "Expected {:error, _} for status #{status}"
       end
+    end
+  end
+
+  # ── Response Classification (AI-006 §4a) ────────────────────────
+  #
+  # The seam must classify errors so Arc 2's worker can choose snooze/cancel/
+  # retry. Stubs return real sidecar-shaped bodies. This table is the
+  # prerequisite for the §4b failure taxonomy; without it there is no taxonomy.
+
+  defp stub_status(status, body) do
+    Req.Test.stub(AiClient, fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(status, Jason.encode!(body))
+    end)
+  end
+
+  describe "response classification" do
+    test "transport failure (connection refused) -> {:error, :unavailable}" do
+      Req.Test.stub(AiClient, fn conn -> Req.Test.transport_error(conn, :econnrefused) end)
+      assert {:error, :unavailable} = AiClient.extract_receipt("x", @context)
+    end
+
+    test "transport failure (timeout) -> {:error, :unavailable}" do
+      Req.Test.stub(AiClient, fn conn -> Req.Test.transport_error(conn, :timeout) end)
+      assert {:error, :unavailable} = AiClient.extract_receipt("x", @context)
+    end
+
+    test "502 and 503 -> {:error, :unavailable} (sidecar down)" do
+      for status <- [502, 503] do
+        stub_status(status, %{"detail" => "Service Unavailable"})
+
+        assert {:error, :unavailable} = AiClient.extract_receipt("x", @context),
+               "Expected :unavailable for status #{status}"
+      end
+    end
+
+    test "4xx -> {:error, {:bad_input, detail}} carrying the decoded body" do
+      for status <- [400, 403, 404, 422, 429] do
+        stub_status(status, %{"error" => "bad_request_#{status}"})
+
+        assert {:error, {:bad_input, detail}} = AiClient.extract_receipt("x", @context),
+               "Expected :bad_input for status #{status}"
+
+        assert detail["error"] == "bad_request_#{status}"
+      end
+    end
+
+    test "other 5xx -> {:error, {:transient, detail}} carrying the decoded body" do
+      for status <- [500, 504] do
+        stub_status(status, %{"error" => "server_error_#{status}"})
+
+        assert {:error, {:transient, detail}} = AiClient.extract_receipt("x", @context),
+               "Expected :transient for status #{status}"
+
+        assert detail["error"] == "server_error_#{status}"
+      end
+    end
+
+    test "200 -> {:ok, body} (unchanged)" do
+      stub_status(200, %{"status" => "success", "payload" => %{"items" => []}})
+      assert {:ok, body} = AiClient.extract_receipt("x", @context)
+      assert body["payload"]["items"] == []
     end
   end
 

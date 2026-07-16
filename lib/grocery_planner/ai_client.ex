@@ -181,17 +181,37 @@ defmodule GroceryPlanner.AiClient do
     end
   end
 
+  # Classify responses so callers can choose snooze/cancel/retry rather than
+  # treating every failure identically (AI-006 §4a). The mapping is the
+  # prerequisite for Arc 2's failure taxonomy (§4b):
+  #
+  #   transport error / 502 / 503 -> {:error, :unavailable}      (sidecar down)
+  #   4xx                         -> {:error, {:bad_input, d}}   (this image/request is bad)
+  #   other 5xx                   -> {:error, {:transient, d}}   (retry may help)
+  #
+  # `detail` is the decoded response body so the caller can log/inspect it.
   defp handle_response({:ok, %Req.Response{status: 200, body: body}}) do
     {:ok, body}
   end
 
+  defp handle_response({:ok, %Req.Response{status: status}}) when status in [502, 503] do
+    Logger.error("AI Service unavailable (#{status})")
+    {:error, :unavailable}
+  end
+
+  defp handle_response({:ok, %Req.Response{status: status, body: body}})
+       when status >= 400 and status < 500 do
+    Logger.error("AI Service rejected request (#{status})")
+    {:error, {:bad_input, body}}
+  end
+
   defp handle_response({:ok, %Req.Response{status: status, body: body}}) do
-    Logger.error("AI Service Error (#{status})")
-    {:error, body}
+    Logger.error("AI Service transient error (#{status})")
+    {:error, {:transient, body}}
   end
 
   defp handle_response({:error, reason}) do
-    Logger.error("AI Service Connection Error: #{inspect(reason)}")
-    {:error, reason}
+    Logger.error("AI Service connection error: #{inspect(reason)}")
+    {:error, :unavailable}
   end
 end

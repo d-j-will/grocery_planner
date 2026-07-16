@@ -192,8 +192,14 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
   end
 
   describe "save_extraction_results/2" do
-    test "creates receipt items from extraction data", %{account: account} do
-      # Create a receipt first
+    # The sidecar returns the flat ExtractionResponsePayload wrapped in the
+    # BaseResponse envelope (python_service/schemas.py). Fixtures below use ONLY
+    # that shape — amounts are JSON floats, currency/raw_ocr_text/
+    # overall_confidence/model_version/processing_time_ms live in the payload.
+    # Nothing here asserts a field production leaves nil (that was the old
+    # nested-fixture trap, AI-006 Testing §).
+
+    test "creates receipt items from the flat extraction payload", %{account: account} do
       {:ok, receipt} =
         Inventory.create_receipt(
           account.id,
@@ -208,31 +214,30 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
         )
 
       extraction = %{
-        "model_version" => "tesseract-5.3.0",
-        "processing_time_ms" => 1500,
-        "extraction" => %{
-          "merchant" => %{"name" => "Test Store", "confidence" => 0.9},
-          "date" => %{"value" => "2026-02-01", "confidence" => 0.85},
-          "total" => %{"amount" => "25.99", "currency" => "USD", "confidence" => 0.95},
+        "request_id" => "req_test_1",
+        "status" => "success",
+        "payload" => %{
+          "merchant" => "Test Store",
+          "date" => "2026-02-01",
+          "total" => 25.99,
+          "currency" => "USD",
           "raw_ocr_text" => "TEST STORE\nMILK 3.99\nBREAD 2.50",
           "overall_confidence" => 0.87,
-          "line_items" => [
+          "model_version" => "tesseract-5.3.0",
+          "processing_time_ms" => 1500.0,
+          "items" => [
             %{
-              "raw_text" => "MILK",
-              "parsed_name" => "Milk",
+              "name" => "Milk",
               "quantity" => 1,
               "unit" => "each",
-              "unit_price" => %{"amount" => "3.99", "currency" => "USD"},
-              "total_price" => %{"amount" => "3.99", "currency" => "USD"},
+              "price" => 3.99,
               "confidence" => 0.9
             },
             %{
-              "raw_text" => "BREAD",
-              "parsed_name" => "Bread",
+              "name" => "Bread",
               "quantity" => 1,
               "unit" => "each",
-              "unit_price" => %{"amount" => "2.50", "currency" => "USD"},
-              "total_price" => %{"amount" => "2.50", "currency" => "USD"},
+              "price" => 2.50,
               "confidence" => 0.85
             }
           ]
@@ -245,14 +250,13 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
       assert updated_receipt.merchant_name == "Test Store"
       assert updated_receipt.status == :completed
       assert updated_receipt.purchase_date == ~D[2026-02-01]
-      assert updated_receipt.total_amount == Money.new("25.99", :USD)
+      assert Money.equal?(updated_receipt.total_amount, Money.new("25.99", :USD))
       assert updated_receipt.extraction_confidence == 0.87
       assert updated_receipt.model_version == "tesseract-5.3.0"
       assert updated_receipt.processing_time_ms == 1500
       assert updated_receipt.raw_ocr_text == "TEST STORE\nMILK 3.99\nBREAD 2.50"
       assert updated_receipt.processed_at != nil
 
-      # Verify receipt items were created
       {:ok, items} =
         Inventory.list_receipt_items_for_receipt(
           updated_receipt.id,
@@ -263,16 +267,70 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
       assert length(items) == 2
 
       milk = Enum.find(items, fn item -> item.final_name == "Milk" end)
-      assert milk.raw_name == "MILK"
+      assert milk.raw_name == "Milk"
       assert milk.quantity == Decimal.new("1")
       assert milk.unit == "each"
-      assert milk.unit_price == Money.new("3.99", :USD)
-      assert milk.total_price == Money.new("3.99", :USD)
+      assert Money.equal?(milk.unit_price, Money.new("3.99", :USD))
+      assert Money.equal?(milk.total_price, Money.new("3.99", :USD))
       assert milk.confidence == 0.9
 
       bread = Enum.find(items, fn item -> item.final_name == "Bread" end)
-      assert bread.raw_name == "BREAD"
-      assert bread.total_price == Money.new("2.50", :USD)
+      assert bread.raw_name == "Bread"
+      assert Money.equal?(bread.total_price, Money.new("2.50", :USD))
+    end
+
+    test "currency from the payload drives the amounts (not a hardcoded default)",
+         %{account: account} do
+      # grocery_planner-83o: prove a non-USD receipt keeps its currency end to end.
+      {:ok, receipt} =
+        Inventory.create_receipt(
+          account.id,
+          %{
+            file_path: "/tmp/test.jpg",
+            file_hash: "gbp123",
+            file_size: 1000,
+            mime_type: "image/jpeg"
+          },
+          authorize?: false,
+          tenant: account.id
+        )
+
+      extraction = %{
+        "status" => "success",
+        "payload" => %{
+          "merchant" => "Tesco",
+          "date" => "2026-02-01",
+          "total" => 4.50,
+          "currency" => "GBP",
+          "raw_ocr_text" => "TESCO",
+          "overall_confidence" => 0.8,
+          "model_version" => "tesseract-5.3.0",
+          "processing_time_ms" => 900.0,
+          "items" => [
+            %{
+              "name" => "Beans",
+              "quantity" => 1,
+              "unit" => "tin",
+              "price" => 4.50,
+              "confidence" => 0.8
+            }
+          ]
+        }
+      }
+
+      assert {:ok, updated_receipt} =
+               ReceiptProcessor.save_extraction_results(receipt, extraction)
+
+      assert Money.equal?(updated_receipt.total_amount, Money.new("4.50", :GBP))
+      assert updated_receipt.total_amount.currency == :GBP
+
+      {:ok, [beans]} =
+        Inventory.list_receipt_items_for_receipt(updated_receipt.id,
+          authorize?: false,
+          tenant: account.id
+        )
+
+      assert beans.unit_price.currency == :GBP
     end
 
     test "handles nil optional fields gracefully", %{account: account} do
@@ -290,15 +348,17 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
         )
 
       extraction = %{
-        "model_version" => "tesseract-5.3.0",
-        "processing_time_ms" => 1000,
-        "extraction" => %{
+        "status" => "success",
+        "payload" => %{
           "merchant" => nil,
           "date" => nil,
           "total" => nil,
+          "currency" => "USD",
           "raw_ocr_text" => "UNREADABLE",
           "overall_confidence" => 0.3,
-          "line_items" => []
+          "model_version" => "tesseract-5.3.0",
+          "processing_time_ms" => 1000.0,
+          "items" => []
         }
       }
 
@@ -312,7 +372,7 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
       assert updated_receipt.extraction_confidence == 0.3
     end
 
-    test "handles empty line items", %{account: account} do
+    test "handles empty items", %{account: account} do
       {:ok, receipt} =
         Inventory.create_receipt(
           account.id,
@@ -327,12 +387,14 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
         )
 
       extraction = %{
-        "model_version" => "tesseract-5.3.0",
-        "processing_time_ms" => 500,
-        "extraction" => %{
+        "status" => "success",
+        "payload" => %{
+          "currency" => "USD",
           "raw_ocr_text" => "SOME TEXT",
           "overall_confidence" => 0.5,
-          "line_items" => []
+          "model_version" => "tesseract-5.3.0",
+          "processing_time_ms" => 500.0,
+          "items" => []
         }
       }
 
@@ -364,13 +426,15 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
         )
 
       extraction = %{
-        "model_version" => "tesseract-5.3.0",
-        "processing_time_ms" => 500,
-        "extraction" => %{
-          "date" => %{"value" => "invalid-date", "confidence" => 0.5},
+        "status" => "success",
+        "payload" => %{
+          "date" => "invalid-date",
+          "currency" => "USD",
           "raw_ocr_text" => "TEXT",
           "overall_confidence" => 0.5,
-          "line_items" => []
+          "model_version" => "tesseract-5.3.0",
+          "processing_time_ms" => 500.0,
+          "items" => []
         }
       }
 
@@ -378,6 +442,70 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
                ReceiptProcessor.save_extraction_results(receipt, extraction)
 
       assert updated_receipt.purchase_date == nil
+    end
+  end
+
+  describe "contract: flat wire payload <-> parser" do
+    # This is the load-bearing half of the contract test (AI-006 §Testing,
+    # Arc 1). @wire_payload mirrors python_service/schemas.py
+    # ExtractionResponsePayload EXACTLY. The Python side pins the same field set
+    # in test_extraction_response_payload_contract; together they fail loudly if
+    # either end renames or drops a field. The whole AI-006 defect class was the
+    # two sides diverging while both looked green.
+    @wire_payload %{
+      "items" => [
+        %{
+          "name" => "Bananas",
+          "quantity" => 1.0,
+          "unit" => "bunch",
+          "price" => 1.99,
+          "confidence" => 0.98
+        }
+      ],
+      "total" => 1.99,
+      "merchant" => "Contract Market",
+      "date" => "2026-03-04",
+      "currency" => "USD",
+      "raw_ocr_text" => "CONTRACT MARKET\nBANANAS 1.99",
+      "overall_confidence" => 0.9,
+      "model_version" => "tesseract-5.4.0",
+      "processing_time_ms" => 1234.5
+    }
+
+    test "every field the parser reads is present on the wire payload and lands on the receipt",
+         %{account: account} do
+      {:ok, receipt} =
+        Inventory.create_receipt(
+          account.id,
+          %{
+            file_path: "/tmp/test.jpg",
+            file_hash: "contract123",
+            file_size: 1000,
+            mime_type: "image/jpeg"
+          },
+          authorize?: false,
+          tenant: account.id
+        )
+
+      assert {:ok, r} =
+               ReceiptProcessor.save_extraction_results(receipt, %{"payload" => @wire_payload})
+
+      # None of the wired fields may be nil — the AI-006 bug was all four of
+      # these silently nil in production because the app parsed a shape the
+      # sidecar never emitted.
+      assert r.merchant_name == "Contract Market"
+      assert r.purchase_date == ~D[2026-03-04]
+      assert Money.equal?(r.total_amount, Money.new("1.99", :USD))
+      assert r.raw_ocr_text == "CONTRACT MARKET\nBANANAS 1.99"
+      assert r.extraction_confidence == 0.9
+      assert r.model_version == "tesseract-5.4.0"
+      assert r.processing_time_ms == 1235
+
+      {:ok, [item]} =
+        Inventory.list_receipt_items_for_receipt(r.id, authorize?: false, tenant: account.id)
+
+      assert item.raw_name == "Bananas"
+      assert Money.equal?(item.unit_price, Money.new("1.99", :USD))
     end
   end
 

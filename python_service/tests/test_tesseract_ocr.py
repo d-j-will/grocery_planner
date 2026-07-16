@@ -95,6 +95,14 @@ class TestTesseractExtractReceiptEndpoint:
         assert "merchant" in payload
         assert "date" in payload
 
+        # Enriched flat contract (AI-006 §5): the Tesseract branch must stop
+        # discarding these — they were computed and thrown away before.
+        assert isinstance(payload["currency"], str) and payload["currency"]
+        assert isinstance(payload["raw_ocr_text"], str)
+        assert 0.0 <= payload["overall_confidence"] <= 1.0
+        assert "tesseract" in payload["model_version"].lower()
+        assert payload["processing_time_ms"] >= 0
+
     @patch('main.settings.USE_TESSERACT_OCR', True)
     @patch('main.settings.USE_VLLM_OCR', False)
     def test_tesseract_endpoint_invalid_base64(self, client):

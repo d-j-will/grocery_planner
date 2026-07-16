@@ -94,11 +94,24 @@ class ExtractedItem(BaseModel):
 
 
 class ExtractionResponsePayload(BaseModel):
-    """Payload for receipt extraction responses."""
+    """Payload for receipt extraction responses (the flat wire contract).
+
+    This is the ONLY receipt shape the Elixir app consumes
+    (GroceryPlanner.Inventory.ReceiptProcessor). Every field here has a
+    consumer on the Elixir side; adding/renaming a field is a contract change
+    that both `test_extraction_response_payload_contract` (Python) and
+    `receipt_processor_test.exs` (Elixir) pin. Currency is hoisted to the
+    payload (one currency per receipt), not carried per-item.
+    """
     items: List[ExtractedItem] = Field(..., description="Extracted line items")
     total: Optional[float] = Field(default=None, description="Receipt total if detected")
     merchant: Optional[str] = Field(default=None, description="Merchant name if detected")
     date: Optional[str] = Field(default=None, description="Purchase date if detected")
+    currency: str = Field(default="USD", description="ISO-4217 currency code for all amounts on this receipt")
+    raw_ocr_text: str = Field(default="", description="Full raw OCR output")
+    overall_confidence: float = Field(default=0.0, ge=0, le=1, description="Overall extraction confidence (0-1)")
+    model_version: Optional[str] = Field(default=None, description="OCR engine/model version that produced this result")
+    processing_time_ms: Optional[float] = Field(default=None, description="Server-side processing time in milliseconds")
 
 
 # =============================================================================
