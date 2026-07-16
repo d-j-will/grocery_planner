@@ -87,7 +87,7 @@ defmodule GroceryPlanner.Integration.ReceiptOcrIntegrationTest do
           tenant: account.id
         )
 
-      assert receipt.status == :pending
+      assert receipt.stage == :pending
 
       # Drive the extract stage worker directly (bypasses Oban scheduling).
       # This exercises: file read → base64 encode → HTTP POST → response handling
