@@ -12,6 +12,8 @@
 #   # and the sidecar as appuser (1000):
 #   docker run --rm -v grocery_planner_receipt-uploads:/v alpine chown 65534:65534 /v
 #   docker run --rm -v grocery_planner_hf-cache:/v alpine chown 1000:1000 /v
+#   # shared observability network (also joined by slackex's collector/prometheus):
+#   docker network create monitoring
 #
 # IMAGE_OWNER (in .env) is the GHCR namespace the deploy workflow pushed to —
 # it must equal ${{ github.repository_owner }}, i.e. the repo owner (d-j-will).
@@ -32,21 +34,34 @@ services:
       RECEIPT_PROCESSING_ENABLED: "true"
       SEMANTIC_SEARCH_ENABLED: "true"
       AI_CATEGORIZATION_ENABLED: "false" # off for v1 (real-ML classification not enabled yet); don't serve stub categories. GPU-local path deferred to grocery_planner-89l
-      # Tracing: off until a collector exists on the homelab (INFRA-002 Grafana
-      # stack). Flip to "true" AND set OTEL_EXPORTER_OTLP_ENDPOINT together —
-      # enabling without an endpoint disables itself with a warning rather than
-      # exporting into the void. Until then setup is skipped entirely, so no spans
-      # are created and nothing is dropped.
-      OTEL_ENABLED: "false"
-      # OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4317
+      # Tracing: exports OTLP/gRPC to the shared homelab collector
+      # (slackex-owned otel-collector, reachable as otel-collector:4317 on the
+      # `monitoring` network). Enabling requires BOTH the flag and the endpoint —
+      # the flag alone disables itself with a warning rather than exporting into
+      # the void (see runtime.exs / t7j). Traces continue into the Oban workers
+      # automatically (opentelemetry_oban). (grocery_planner-k9c)
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     volumes:
       - receipt-uploads:/data/uploads/receipts
     networks:
-      - default
-      - proxy
+      # default + proxy as before; `monitoring` joins the shared observability
+      # network so Prometheus can scrape /metrics and traces can reach the
+      # collector, both by service name. Alias keeps the scrape target stable.
+      default: {}
+      proxy: {}
+      monitoring:
+        aliases:
+          - grocery-planner
     labels:
       caddy: food.davewil.dev
-      caddy.reverse_proxy: "{{upstreams 4000}}"
+      # Block /metrics publicly — Prometheus scrapes it internally over the
+      # `monitoring` network, so it never needs to be reachable via caddy. If the
+      # generated Caddyfile is ever invalid, caddy keeps the last-good config, so
+      # this can't take the public site down. (grocery_planner-k9c)
+      caddy.@metrics.path: /metrics /metrics/*
+      caddy.route.0_abort: "@metrics"
+      caddy.route.1_reverse_proxy: "{{upstreams 4000}}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -134,4 +149,9 @@ volumes:
 
 networks:
   proxy:
+    external: true
+  # Shared observability network (Prometheus scrape + OTLP collector). Created
+  # once on the host: `docker network create monitoring`. slackex's collector and
+  # Prometheus join it too (see slackex compose). (grocery_planner-k9c)
+  monitoring:
     external: true
