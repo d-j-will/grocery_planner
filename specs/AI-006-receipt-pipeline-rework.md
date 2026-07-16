@@ -390,6 +390,16 @@ Ordered, because the last steps depend on the first:
    recoverable without it: the image is already on disk, and the extraction lands in
    `receipt.raw_extraction` — tenant-scoped, backed up, joinable, prunable with the
    receipt.
+
+   > **Decision (2026-07-16): delete, don't fix; the eval log is deferred to
+   > `grocery_planner-k0g`.** Debugging a bad extraction is covered by `raw_extraction` +
+   > `failure_reason` + the OTel span, so nothing needs an audit log today. A durable,
+   > per-receipt, tenant-queryable **eval dataset** is the one thing telemetry can't
+   > provide — but it's only justified by a real model-improvement need, which doesn't
+   > exist yet. `k0g` captures what that resource would be (a Postgres `AiCall` Ash
+   > resource: metadata + a `receipt_id` reference, **never the blob**, bounded by an Oban
+   > prune) so it's built fresh when the need is real, not resurrected. Building a
+   > reader-less audit log "just in case" is the exact pattern this arc deletes.
 2. **Delete `ai_jobs` + `jobs.py` + `/api/v1/jobs` + the `receipt_extraction` handler.**
    The handler branches `USE_VLLM_OCR` → else **mock**; prod runs Tesseract, so this path
    would serve "Mock Supermarket" to real users.
