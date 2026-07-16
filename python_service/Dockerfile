@@ -1,6 +1,6 @@
 # Use an official lightweight Python image.
 # https://hub.docker.com/_/python
-FROM python:3.11-slim-bullseye
+FROM python:3.12-slim-bookworm
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -30,7 +30,7 @@ COPY requirements.txt .
 # is a ~30GB image on a modest 680M iGPU — deferred to grocery_planner-89l.
 # Install the CPU wheel from the PyTorch CPU index FIRST; the subsequent
 # `-r requirements.txt` sees torch satisfied and resolves everything else from PyPI.
-# (CPU torch's manylinux_2_28 wheel needs glibc >= 2.28; bullseye has 2.31.)
+# (CPU torch's manylinux_2_28 wheel needs glibc >= 2.28; bookworm has 2.36.)
 RUN pip install --index-url https://download.pytorch.org/whl/cpu torch \
  && pip install -r requirements.txt
 
