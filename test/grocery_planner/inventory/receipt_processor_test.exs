@@ -191,267 +191,128 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
     end
   end
 
-  describe "save_extraction_results/2" do
-    # The sidecar returns the flat ExtractionResponsePayload wrapped in the
-    # BaseResponse envelope (python_service/schemas.py). Fixtures below use ONLY
-    # that shape — amounts are JSON floats, currency/raw_ocr_text/
-    # overall_confidence/model_version/processing_time_ms live in the payload.
-    # Nothing here asserts a field production leaves nil (that was the old
-    # nested-fixture trap, AI-006 Testing §).
+  describe "parse_receipt_attrs/1 and parse_item_attrs_list/1" do
+    # The sidecar returns the flat ExtractionResponsePayload (python_service/
+    # schemas.py). These parsers are pure — the extract/persist workers feed the
+    # results into mark_extracted and Ash.bulk_create. Fixtures use ONLY the real
+    # wire shape (float amounts; currency/raw_ocr_text/... in the payload).
 
-    test "creates receipt items from the flat extraction payload", %{account: account} do
-      {:ok, receipt} =
-        Inventory.create_receipt(
-          account.id,
-          %{
-            file_path: "/tmp/test.jpg",
-            file_hash: "abc123",
-            file_size: 1000,
-            mime_type: "image/jpeg"
-          },
-          authorize?: false,
-          tenant: account.id
-        )
-
-      extraction = %{
-        "request_id" => "req_test_1",
-        "status" => "success",
-        "payload" => %{
-          "merchant" => "Test Store",
-          "date" => "2026-02-01",
-          "total" => 25.99,
-          "currency" => "USD",
-          "raw_ocr_text" => "TEST STORE\nMILK 3.99\nBREAD 2.50",
-          "overall_confidence" => 0.87,
-          "model_version" => "tesseract-5.3.0",
-          "processing_time_ms" => 1500.0,
-          "items" => [
-            %{
-              "name" => "Milk",
-              "quantity" => 1,
-              "unit" => "each",
-              "price" => 3.99,
-              "confidence" => 0.9
-            },
-            %{
-              "name" => "Bread",
-              "quantity" => 1,
-              "unit" => "each",
-              "price" => 2.50,
-              "confidence" => 0.85
-            }
-          ]
-        }
+    test "parses receipt metadata from the flat payload" do
+      payload = %{
+        "merchant" => "Test Store",
+        "date" => "2026-02-01",
+        "total" => 25.99,
+        "currency" => "USD",
+        "raw_ocr_text" => "TEST STORE\nMILK 3.99\nBREAD 2.50",
+        "overall_confidence" => 0.87,
+        "model_version" => "tesseract-5.3.0",
+        "processing_time_ms" => 1500.0
       }
 
-      assert {:ok, updated_receipt} =
-               ReceiptProcessor.save_extraction_results(receipt, extraction)
+      attrs = ReceiptProcessor.parse_receipt_attrs(payload)
 
-      assert updated_receipt.merchant_name == "Test Store"
-      assert updated_receipt.status == :completed
-      assert updated_receipt.purchase_date == ~D[2026-02-01]
-      assert Money.equal?(updated_receipt.total_amount, Money.new("25.99", :USD))
-      assert updated_receipt.extraction_confidence == 0.87
-      assert updated_receipt.model_version == "tesseract-5.3.0"
-      assert updated_receipt.processing_time_ms == 1500
-      assert updated_receipt.raw_ocr_text == "TEST STORE\nMILK 3.99\nBREAD 2.50"
-      assert updated_receipt.processed_at != nil
+      assert attrs.merchant_name == "Test Store"
+      assert attrs.purchase_date == ~D[2026-02-01]
+      assert Money.equal?(attrs.total_amount, Money.new("25.99", :USD))
+      assert attrs.raw_ocr_text == "TEST STORE\nMILK 3.99\nBREAD 2.50"
+      assert attrs.extraction_confidence == 0.87
+      assert attrs.model_version == "tesseract-5.3.0"
+      assert attrs.processing_time_ms == 1500
+      assert attrs.processed_at != nil
+    end
 
-      {:ok, items} =
-        Inventory.list_receipt_items_for_receipt(
-          updated_receipt.id,
-          authorize?: false,
-          tenant: account.id
-        )
+    test "parses line items with line_no position and currency-bearing money" do
+      payload = %{
+        "currency" => "USD",
+        "items" => [
+          %{
+            "name" => "Milk",
+            "quantity" => 1,
+            "unit" => "each",
+            "price" => 3.99,
+            "confidence" => 0.9
+          },
+          %{
+            "name" => "Bread",
+            "quantity" => 1,
+            "unit" => "each",
+            "price" => 2.50,
+            "confidence" => 0.85
+          }
+        ]
+      }
 
-      assert length(items) == 2
+      [milk, bread] = ReceiptProcessor.parse_item_attrs_list(payload)
 
-      milk = Enum.find(items, fn item -> item.final_name == "Milk" end)
+      assert milk.line_no == 0
       assert milk.raw_name == "Milk"
+      assert milk.final_name == "Milk"
       assert milk.quantity == Decimal.new("1")
       assert milk.unit == "each"
       assert Money.equal?(milk.unit_price, Money.new("3.99", :USD))
       assert Money.equal?(milk.total_price, Money.new("3.99", :USD))
       assert milk.confidence == 0.9
 
-      bread = Enum.find(items, fn item -> item.final_name == "Bread" end)
-      assert bread.raw_name == "Bread"
+      assert bread.line_no == 1
       assert Money.equal?(bread.total_price, Money.new("2.50", :USD))
     end
 
-    test "currency from the payload drives the amounts (not a hardcoded default)",
-         %{account: account} do
-      # grocery_planner-83o: prove a non-USD receipt keeps its currency end to end.
-      {:ok, receipt} =
-        Inventory.create_receipt(
-          account.id,
+    test "currency from the payload drives the amounts (grocery_planner-83o)" do
+      payload = %{
+        "total" => 4.50,
+        "currency" => "GBP",
+        "items" => [
           %{
-            file_path: "/tmp/test.jpg",
-            file_hash: "gbp123",
-            file_size: 1000,
-            mime_type: "image/jpeg"
-          },
-          authorize?: false,
-          tenant: account.id
-        )
-
-      extraction = %{
-        "status" => "success",
-        "payload" => %{
-          "merchant" => "Tesco",
-          "date" => "2026-02-01",
-          "total" => 4.50,
-          "currency" => "GBP",
-          "raw_ocr_text" => "TESCO",
-          "overall_confidence" => 0.8,
-          "model_version" => "tesseract-5.3.0",
-          "processing_time_ms" => 900.0,
-          "items" => [
-            %{
-              "name" => "Beans",
-              "quantity" => 1,
-              "unit" => "tin",
-              "price" => 4.50,
-              "confidence" => 0.8
-            }
-          ]
-        }
+            "name" => "Beans",
+            "quantity" => 1,
+            "unit" => "tin",
+            "price" => 4.50,
+            "confidence" => 0.8
+          }
+        ]
       }
 
-      assert {:ok, updated_receipt} =
-               ReceiptProcessor.save_extraction_results(receipt, extraction)
+      attrs = ReceiptProcessor.parse_receipt_attrs(payload)
+      assert Money.equal?(attrs.total_amount, Money.new("4.50", :GBP))
+      assert attrs.total_amount.currency == :GBP
 
-      assert Money.equal?(updated_receipt.total_amount, Money.new("4.50", :GBP))
-      assert updated_receipt.total_amount.currency == :GBP
-
-      {:ok, [beans]} =
-        Inventory.list_receipt_items_for_receipt(updated_receipt.id,
-          authorize?: false,
-          tenant: account.id
-        )
-
+      [beans] = ReceiptProcessor.parse_item_attrs_list(payload)
       assert beans.unit_price.currency == :GBP
     end
 
-    test "handles nil optional fields gracefully", %{account: account} do
-      {:ok, receipt} =
-        Inventory.create_receipt(
-          account.id,
-          %{
-            file_path: "/tmp/test.jpg",
-            file_hash: "abc456",
-            file_size: 1000,
-            mime_type: "image/jpeg"
-          },
-          authorize?: false,
-          tenant: account.id
-        )
-
-      extraction = %{
-        "status" => "success",
-        "payload" => %{
-          "merchant" => nil,
-          "date" => nil,
-          "total" => nil,
-          "currency" => "USD",
-          "raw_ocr_text" => "UNREADABLE",
-          "overall_confidence" => 0.3,
-          "model_version" => "tesseract-5.3.0",
-          "processing_time_ms" => 1000.0,
-          "items" => []
-        }
+    test "nil optional fields parse to nil, not a crash" do
+      payload = %{
+        "merchant" => nil,
+        "date" => nil,
+        "total" => nil,
+        "currency" => "USD",
+        "raw_ocr_text" => "UNREADABLE",
+        "overall_confidence" => 0.3,
+        "model_version" => "tesseract-5.3.0",
+        "processing_time_ms" => 1000.0,
+        "items" => []
       }
 
-      assert {:ok, updated_receipt} =
-               ReceiptProcessor.save_extraction_results(receipt, extraction)
-
-      assert updated_receipt.status == :completed
-      assert updated_receipt.merchant_name == nil
-      assert updated_receipt.purchase_date == nil
-      assert updated_receipt.total_amount == nil
-      assert updated_receipt.extraction_confidence == 0.3
+      attrs = ReceiptProcessor.parse_receipt_attrs(payload)
+      assert attrs.merchant_name == nil
+      assert attrs.purchase_date == nil
+      assert attrs.total_amount == nil
+      assert attrs.extraction_confidence == 0.3
+      assert ReceiptProcessor.parse_item_attrs_list(payload) == []
     end
 
-    test "handles empty items", %{account: account} do
-      {:ok, receipt} =
-        Inventory.create_receipt(
-          account.id,
-          %{
-            file_path: "/tmp/test.jpg",
-            file_hash: "empty123",
-            file_size: 1000,
-            mime_type: "image/jpeg"
-          },
-          authorize?: false,
-          tenant: account.id
-        )
+    test "invalid date parses to nil" do
+      attrs =
+        ReceiptProcessor.parse_receipt_attrs(%{"date" => "invalid-date", "currency" => "USD"})
 
-      extraction = %{
-        "status" => "success",
-        "payload" => %{
-          "currency" => "USD",
-          "raw_ocr_text" => "SOME TEXT",
-          "overall_confidence" => 0.5,
-          "model_version" => "tesseract-5.3.0",
-          "processing_time_ms" => 500.0,
-          "items" => []
-        }
-      }
-
-      assert {:ok, updated_receipt} =
-               ReceiptProcessor.save_extraction_results(receipt, extraction)
-
-      {:ok, items} =
-        Inventory.list_receipt_items_for_receipt(
-          updated_receipt.id,
-          authorize?: false,
-          tenant: account.id
-        )
-
-      assert items == []
-    end
-
-    test "handles invalid date format", %{account: account} do
-      {:ok, receipt} =
-        Inventory.create_receipt(
-          account.id,
-          %{
-            file_path: "/tmp/test.jpg",
-            file_hash: "date123",
-            file_size: 1000,
-            mime_type: "image/jpeg"
-          },
-          authorize?: false,
-          tenant: account.id
-        )
-
-      extraction = %{
-        "status" => "success",
-        "payload" => %{
-          "date" => "invalid-date",
-          "currency" => "USD",
-          "raw_ocr_text" => "TEXT",
-          "overall_confidence" => 0.5,
-          "model_version" => "tesseract-5.3.0",
-          "processing_time_ms" => 500.0,
-          "items" => []
-        }
-      }
-
-      assert {:ok, updated_receipt} =
-               ReceiptProcessor.save_extraction_results(receipt, extraction)
-
-      assert updated_receipt.purchase_date == nil
+      assert attrs.purchase_date == nil
     end
   end
 
   describe "contract: flat wire payload <-> parser" do
-    # This is the load-bearing half of the contract test (AI-006 §Testing,
-    # Arc 1). @wire_payload mirrors python_service/schemas.py
-    # ExtractionResponsePayload EXACTLY. The Python side pins the same field set
-    # in test_extraction_response_payload_contract; together they fail loudly if
-    # either end renames or drops a field. The whole AI-006 defect class was the
-    # two sides diverging while both looked green.
+    # Load-bearing half of the AI-006 contract test. @wire_payload mirrors
+    # python_service/schemas.py ExtractionResponsePayload EXACTLY; the Python side
+    # pins the same field set. Together they fail loudly if either end drifts.
     @wire_payload %{
       "items" => [
         %{
@@ -472,39 +333,20 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
       "processing_time_ms" => 1234.5
     }
 
-    test "every field the parser reads is present on the wire payload and lands on the receipt",
-         %{account: account} do
-      {:ok, receipt} =
-        Inventory.create_receipt(
-          account.id,
-          %{
-            file_path: "/tmp/test.jpg",
-            file_hash: "contract123",
-            file_size: 1000,
-            mime_type: "image/jpeg"
-          },
-          authorize?: false,
-          tenant: account.id
-        )
+    test "every field the parser reads is present on the wire payload" do
+      attrs = ReceiptProcessor.parse_receipt_attrs(@wire_payload)
 
-      assert {:ok, r} =
-               ReceiptProcessor.save_extraction_results(receipt, %{"payload" => @wire_payload})
+      assert attrs.merchant_name == "Contract Market"
+      assert attrs.purchase_date == ~D[2026-03-04]
+      assert Money.equal?(attrs.total_amount, Money.new("1.99", :USD))
+      assert attrs.raw_ocr_text == "CONTRACT MARKET\nBANANAS 1.99"
+      assert attrs.extraction_confidence == 0.9
+      assert attrs.model_version == "tesseract-5.4.0"
+      assert attrs.processing_time_ms == 1235
 
-      # None of the wired fields may be nil — the AI-006 bug was all four of
-      # these silently nil in production because the app parsed a shape the
-      # sidecar never emitted.
-      assert r.merchant_name == "Contract Market"
-      assert r.purchase_date == ~D[2026-03-04]
-      assert Money.equal?(r.total_amount, Money.new("1.99", :USD))
-      assert r.raw_ocr_text == "CONTRACT MARKET\nBANANAS 1.99"
-      assert r.extraction_confidence == 0.9
-      assert r.model_version == "tesseract-5.4.0"
-      assert r.processing_time_ms == 1235
-
-      {:ok, [item]} =
-        Inventory.list_receipt_items_for_receipt(r.id, authorize?: false, tenant: account.id)
-
+      [item] = ReceiptProcessor.parse_item_attrs_list(@wire_payload)
       assert item.raw_name == "Bananas"
+      assert item.line_no == 0
       assert Money.equal?(item.unit_price, Money.new("1.99", :USD))
     end
   end

@@ -7,6 +7,7 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessor do
   require Logger
 
   alias GroceryPlanner.Inventory
+  alias GroceryPlanner.Inventory.Receipts.Pipeline
 
   defp upload_dir do
     Application.get_env(
@@ -31,7 +32,9 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessor do
     with {:ok, file_path, file_hash, file_size, mime_type} <- store_file(file_params),
          :ok <- maybe_check_duplicate(file_hash, account.id, force),
          {:ok, receipt} <- create_receipt(file_path, file_hash, file_size, mime_type, account) do
-      # AshOban scheduler automatically picks up receipts with status: :pending
+      # Kick off the staged pipeline directly (extract -> persist -> match ->
+      # categorise). No cron latency; the reconciler is only a safety net.
+      Pipeline.enqueue_extract(receipt.id)
       {:ok, receipt}
     end
   end
@@ -92,52 +95,37 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessor do
   end
 
   @doc """
-  Processes extraction results from the OCR service and creates receipt items.
-  Returns {:ok, updated_receipt}.
+  Parses the flat extraction payload (`schemas.py ExtractionResponsePayload`,
+  the only shape production emits) into Receipt attributes for the `mark_extracted`
+  milestone. Pure — no DB, never raises. Consumed by the extract stage worker.
   """
-  def save_extraction_results(receipt, extraction) do
-    # The sidecar's /api/v1/extract-receipt returns a flat payload
-    # (schemas.py ExtractionResponsePayload) wrapped in the BaseResponse
-    # envelope. This is the ONLY shape production emits.
-    data = extraction["payload"] || %{}
+  def parse_receipt_attrs(payload) when is_map(payload) do
+    currency = payload["currency"]
 
-    # Currency is hoisted to the payload (one currency per receipt) and drives
-    # every amount below — no hardcoded currency (grocery_planner-83o).
-    currency = data["currency"]
+    %{
+      merchant_name: parse_merchant(payload),
+      purchase_date: parse_purchase_date(payload),
+      total_amount: to_money(payload["total"], currency),
+      raw_ocr_text: payload["raw_ocr_text"],
+      extraction_confidence: payload["overall_confidence"],
+      model_version: payload["model_version"],
+      processing_time_ms: parse_ms(payload["processing_time_ms"]),
+      processed_at: DateTime.utc_now()
+    }
+  end
 
-    # Update receipt with extraction metadata
-    {:ok, updated_receipt} =
-      Inventory.update_receipt(
-        receipt,
-        %{
-          status: :completed,
-          merchant_name: parse_merchant(data),
-          purchase_date: parse_purchase_date(data),
-          total_amount: to_money(data["total"], currency),
-          raw_ocr_text: data["raw_ocr_text"],
-          extraction_confidence: data["overall_confidence"],
-          model_version: data["model_version"],
-          processing_time_ms: parse_ms(data["processing_time_ms"]),
-          processed_at: DateTime.utc_now()
-        },
-        authorize?: false,
-        tenant: receipt.account_id
-      )
+  @doc """
+  Parses the flat payload's line items into ReceiptItem create attributes, one per
+  item, keyed by `line_no` (0-based position). Pure — no DB. Consumed by the
+  persist stage worker, which bulk-creates them in a single transaction; `line_no`
+  is what makes that persist idempotent (AI-006 §3).
+  """
+  def parse_item_attrs_list(payload) when is_map(payload) do
+    currency = payload["currency"]
 
-    items = data["items"] || []
-
-    Enum.each(items, fn item ->
-      create_receipt_item_from_extraction(item, updated_receipt, receipt.account_id, currency)
-    end)
-
-    # Batch categorize extracted items (non-critical, async)
-    if GroceryPlanner.AI.Categorizer.enabled?() do
-      Task.start(fn ->
-        categorize_extracted_items(updated_receipt, receipt.account_id)
-      end)
-    end
-
-    {:ok, updated_receipt}
+    (payload["items"] || [])
+    |> Enum.with_index()
+    |> Enum.map(fn {item, line_no} -> parse_item_attrs(item, currency, line_no) end)
   end
 
   @doc """
@@ -285,30 +273,18 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessor do
 
   # Flat wire shape: each item is an ExtractedItem (name, quantity, unit, price,
   # confidence). Currency comes from the receipt-level payload, not per item.
-  defp create_receipt_item_from_extraction(item, receipt, account_id, currency) do
-    raw_name = item["name"] || "Unknown"
-    final_name = item["name"]
-    quantity = parse_decimal(item["quantity"])
-    unit = item["unit"]
-    unit_price = to_money(item["price"], currency)
-    total_price = to_money(item["price"], currency, item["quantity"])
-    confidence = item["confidence"]
-
-    Inventory.create_receipt_item(
-      receipt.id,
-      account_id,
-      %{
-        raw_name: raw_name,
-        final_name: final_name,
-        quantity: quantity,
-        unit: unit,
-        unit_price: unit_price,
-        total_price: total_price,
-        confidence: confidence
-      },
-      authorize?: false,
-      tenant: account_id
-    )
+  # Returns a plain attribute map (with line_no) for bulk create — no DB.
+  defp parse_item_attrs(item, currency, line_no) do
+    %{
+      raw_name: item["name"] || "Unknown",
+      final_name: item["name"],
+      quantity: parse_decimal(item["quantity"]),
+      unit: item["unit"],
+      unit_price: to_money(item["price"], currency),
+      total_price: to_money(item["price"], currency, item["quantity"]),
+      confidence: item["confidence"],
+      line_no: line_no
+    }
   end
 
   defp create_receipt(file_path, file_hash, file_size, mime_type, account) do

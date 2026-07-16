@@ -76,12 +76,28 @@ config :grocery_planner,
 
 config :grocery_planner, :receipt_upload_dir, "priv/static/uploads/receipts"
 
+# Oban queues (AI-006 §1). Single node, so a per-queue `limit` IS a global cap
+# (local_limit/global_limit are Pro-only). `ai_jobs` is capped at 2 to match the
+# sidecar's `cpus: 2` — a higher limit just queues behind a CPU-bound sidecar.
+# `matching` is our-side CPU-bound (full-catalog scans), so it gets its own limit.
+# Lifeline rescues jobs stuck `executing` after a container restart — safe only
+# because the pipeline stages are idempotent (§3), which neutralises its
+# documented duplicate-execution risk.
 config :grocery_planner, Oban,
   repo: GroceryPlanner.Repo,
-  plugins: [{Oban.Plugins.Cron, []}],
-  queues: [default: 10, ai_jobs: 5]
+  plugins: [
+    {Oban.Plugins.Cron, []},
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)}
+  ],
+  queues: [default: 10, ai_jobs: 2, matching: 3]
 
 config :ash_oban, :domains, [GroceryPlanner.Inventory, GroceryPlanner.Recipes]
+
+# The receipt pipeline workers (AI-006 Arc 2) do Ash writes inside a repo
+# transaction they manage, so Ash can't send action notifications from within it.
+# No resource in this app uses an Ash notifier — the pipeline broadcasts via
+# Phoenix.PubSub directly — so there is nothing to miss. Silence the noise.
+config :ash, :missed_notifications, :ignore
 
 # Configures the endpoint
 config :grocery_planner, GroceryPlannerWeb.Endpoint,

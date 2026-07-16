@@ -89,22 +89,32 @@ defmodule GroceryPlanner.Integration.ReceiptOcrIntegrationTest do
 
       assert receipt.status == :pending
 
-      # Call the :process action directly (bypasses Oban).
-      # This exercises: file read → base64 encode → HTTP POST → response handling.
-      # OCR may fail on the test fixture image, which is fine — we're testing
-      # the pipeline plumbing, not Tesseract accuracy.
-      result = Ash.update(receipt, %{}, action: :process, authorize?: false)
+      # Drive the extract stage worker directly (bypasses Oban scheduling).
+      # This exercises: file read → base64 encode → HTTP POST → response handling
+      # → classification. OCR may fail on the test fixture, which is fine — we're
+      # testing the pipeline plumbing, not Tesseract accuracy.
+      job = %Oban.Job{args: %{"receipt_id" => receipt.id}, attempt: 1, max_attempts: 5}
+      result = GroceryPlanner.Inventory.Receipts.ExtractWorker.perform(job)
+
+      {:ok, processed} =
+        GroceryPlanner.Inventory.get_receipt(receipt.id, authorize?: false, tenant: account.id)
 
       case result do
-        {:ok, processed} ->
-          # OCR succeeded — receipt is completed
-          assert processed.status == :completed
+        :ok ->
+          # Extraction succeeded — the milestone advanced.
+          assert processed.stage == :extracted
           assert processed.processed_at != nil
 
-        {:error, _error} ->
-          # OCR failed (e.g., Tesseract can't parse the test image) —
-          # the pipeline handled it correctly by returning an error.
-          # This proves the full round-trip works.
+        {:cancel, _} ->
+          # Bad input (4xx) — classified and failed, not retried.
+          assert processed.condition == :failed
+
+        {:snooze, _} ->
+          # Sidecar unavailable — visible as awaiting_ai.
+          assert processed.condition == :awaiting_ai
+
+        {:error, _} ->
+          # Transient (5xx) — left for retry. Both prove the round-trip works.
           :ok
       end
     end
@@ -127,9 +137,15 @@ defmodule GroceryPlanner.Integration.ReceiptOcrIntegrationTest do
           tenant: account.id
         )
 
-      # Process should fail gracefully (file read error)
-      assert {:error, _reason} =
-               Ash.update(receipt, %{}, action: :process, authorize?: false)
+      # A missing file never recovers on retry: the extract worker cancels and
+      # marks the receipt failed.
+      job = %Oban.Job{args: %{"receipt_id" => receipt.id}, attempt: 1, max_attempts: 5}
+      assert {:cancel, _} = GroceryPlanner.Inventory.Receipts.ExtractWorker.perform(job)
+
+      {:ok, r} =
+        GroceryPlanner.Inventory.get_receipt(receipt.id, authorize?: false, tenant: account.id)
+
+      assert r.condition == :failed
     end
   end
 end

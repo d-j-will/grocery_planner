@@ -13,7 +13,7 @@ defmodule GroceryPlannerWeb.ReceiptLive do
   on_mount({GroceryPlannerWeb.Auth, :require_authenticated_user})
 
   alias GroceryPlanner.Inventory
-  alias GroceryPlanner.Inventory.{ReceiptProcessor, ItemMatcher}
+  alias GroceryPlanner.Inventory.ReceiptProcessor
 
   @impl true
   def mount(_params, _session, socket) do
@@ -518,13 +518,11 @@ defmodule GroceryPlannerWeb.ReceiptLive do
             # Clean up temp file - it's been copied to uploads by ReceiptProcessor
             File.rm(file_params.path)
 
-            # Subscribe to processing updates
+            # Subscribe to processing updates. The pipeline was already enqueued
+            # by ReceiptProcessor.upload/4.
             if connected?(socket) do
               Phoenix.PubSub.subscribe(GroceryPlanner.PubSub, "receipt:#{receipt.id}")
             end
-
-            # Trigger immediate processing instead of waiting for AshOban cron scheduler
-            AshOban.run_trigger(receipt, :process)
 
             socket =
               socket
@@ -751,6 +749,9 @@ defmodule GroceryPlannerWeb.ReceiptLive do
     # Create inventory entries from confirmed items with per-item options
     ReceiptProcessor.create_inventory_entries(receipt, item_options: item_options)
 
+    # Advance the receipt to its terminal milestone.
+    Inventory.mark_confirmed(receipt, authorize?: false, tenant: receipt.account_id)
+
     confirmed_items =
       Enum.map(items, fn item -> Map.put(item, :status, :confirmed) end)
 
@@ -917,8 +918,6 @@ defmodule GroceryPlannerWeb.ReceiptLive do
           Phoenix.PubSub.subscribe(GroceryPlanner.PubSub, "receipt:#{receipt.id}")
         end
 
-        AshOban.run_trigger(receipt, :process)
-
         {:noreply,
          socket
          |> assign(:step, :processing)
@@ -986,75 +985,56 @@ defmodule GroceryPlannerWeb.ReceiptLive do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def handle_info({:receipt_processed, receipt}, socket) do
-    account_id = receipt.account_id
+  def handle_info({:receipt_updated, receipt}, socket) do
+    # The pipeline writes durable stage/condition then broadcasts; the LiveView
+    # is a pure projection of that state (AI-006 §1). Matching already happened in
+    # the match stage — this handler never touches the catalog.
+    cond do
+      receipt.condition == :failed ->
+        {:noreply,
+         socket
+         |> assign(:step, :upload)
+         |> assign(:error, "Processing failed: #{receipt.failure_reason}")}
 
-    case Inventory.list_receipt_items_for_receipt(receipt.id,
-           authorize?: false,
-           tenant: account_id
-         ) do
-      {:ok, items} ->
-        # Run item matching against grocery catalog
-        matched = ItemMatcher.match_receipt_items(items, account_id)
+      receipt.condition == :awaiting_ai ->
+        {:noreply, assign(socket, :processing_status, "Waiting for the AI service...")}
 
-        # Update items with match results and build display list
-        updated_items =
-          Enum.map(matched, fn {item, match_result} ->
-            case match_result do
-              {:ok, match} ->
-                Inventory.update_receipt_item(
-                  item,
-                  %{
-                    grocery_item_id: match.item.id,
-                    match_confidence: match.confidence
-                  },
-                  authorize?: false,
-                  tenant: account_id
-                )
+      receipt.stage in [:ready_for_review, :confirmed] ->
+        show_review(socket, receipt)
 
-                Map.merge(item, %{
-                  grocery_item_id: match.item.id,
-                  match_confidence: match.confidence
-                })
-
-              _ ->
-                item
-            end
-          end)
-
-        storage_locations = load_storage_locations(receipt.account_id)
-
-        socket =
-          socket
-          |> assign(:step, :review)
-          |> assign(:receipt, receipt)
-          |> assign(:receipt_items, updated_items)
-          |> assign(:processing_status, "Complete")
-          |> assign(:storage_locations, storage_locations)
-          |> assign(:item_storage_locations, %{})
-          |> assign(:item_use_by_dates, %{})
-
-        {:noreply, socket}
-
-      _ ->
-        {:noreply, assign(socket, step: :review, receipt: receipt, receipt_items: [])}
+      true ->
+        {:noreply, assign(socket, :processing_status, stage_status(receipt.stage))}
     end
   end
 
-  @impl true
-  def handle_info({:receipt_processing_status, status}, socket) do
-    {:noreply, assign(socket, :processing_status, status)}
-  end
+  # Loads the (already-matched) items and moves to the review step.
+  defp show_review(socket, receipt) do
+    items =
+      case Inventory.list_receipt_items_for_receipt(receipt.id,
+             authorize?: false,
+             tenant: receipt.account_id
+           ) do
+        {:ok, items} -> items
+        _ -> []
+      end
 
-  @impl true
-  def handle_info({:receipt_failed, _receipt, reason}, socket) do
     socket =
       socket
-      |> assign(:step, :upload)
-      |> assign(:error, "Processing failed: #{inspect(reason)}")
+      |> assign(:step, :review)
+      |> assign(:receipt, receipt)
+      |> assign(:receipt_items, items)
+      |> assign(:processing_status, "Complete")
+      |> assign(:storage_locations, load_storage_locations(receipt.account_id))
+      |> assign(:item_storage_locations, %{})
+      |> assign(:item_use_by_dates, %{})
 
     {:noreply, socket}
   end
+
+  defp stage_status(:pending), do: "Extracting text..."
+  defp stage_status(:extracted), do: "Extracting items..."
+  defp stage_status(:items_created), do: "Matching items..."
+  defp stage_status(_), do: "Processing receipt..."
 
   # ---------------------------------------------------------------------------
   # Helper functions

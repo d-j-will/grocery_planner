@@ -59,19 +59,48 @@ defmodule GroceryPlannerWeb.ReceiptLiveTest do
 
     receipt = create_test_receipt(account)
 
-    extraction = %{
-      "payload" => %{
-        "items" => items,
-        "merchant" => merchant,
-        "date" => date
-      }
-    }
+    # Simulate the pipeline having reached :ready_for_review, using the same
+    # production actions the workers use (fixture honesty): create the items, then
+    # advance the milestone. The match worker is what sets grocery_item_id; here
+    # the items are simply reviewable.
+    payload = %{"currency" => "GBP", "items" => items}
 
-    {:ok, updated_receipt} = ReceiptProcessor.save_extraction_results(receipt, extraction)
+    Enum.each(
+      GroceryPlanner.Inventory.ReceiptProcessor.parse_item_attrs_list(payload),
+      fn attrs ->
+        GroceryPlanner.Inventory.create_receipt_item!(receipt.id, account.id, attrs,
+          authorize?: false,
+          tenant: account.id
+        )
+      end
+    )
 
-    # Send the receipt_processed message directly to the LiveView process.
-    # The handle_info handler will query receipt items from the DB.
-    send(view.pid, {:receipt_processed, updated_receipt})
+    {:ok, receipt} =
+      GroceryPlanner.Inventory.update_receipt(
+        receipt,
+        %{merchant_name: merchant, purchase_date: Date.from_iso8601!(date)},
+        authorize?: false,
+        tenant: account.id
+      )
+
+    # Advance to :items_created, then run the REAL match worker — it matches items
+    # to the catalog (setting grocery_item_id/match_confidence) and advances to
+    # :ready_for_review. Fixture honesty: no hand-set match fields.
+    {:ok, receipt} =
+      GroceryPlanner.Inventory.mark_items_created(receipt, authorize?: false, tenant: account.id)
+
+    :ok =
+      GroceryPlanner.Inventory.Receipts.MatchWorker.perform(%Oban.Job{
+        args: %{"receipt_id" => receipt.id},
+        attempt: 1,
+        max_attempts: 5
+      })
+
+    {:ok, updated_receipt} =
+      GroceryPlanner.Inventory.get_receipt(receipt.id, authorize?: false, tenant: account.id)
+
+    # The pipeline writes durable state then broadcasts; drive that message.
+    send(view.pid, {:receipt_updated, updated_receipt})
 
     # Wait for the view to process the message and transition to review step
     assert_eventually(fn ->
@@ -251,10 +280,10 @@ defmodule GroceryPlannerWeb.ReceiptLiveTest do
     test "handles processing status updates without crashing", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/receipts/scan")
 
-      # The processing status message is accepted at any step without crashing.
-      # The status text only renders on the :processing step, but the assign is
-      # stored regardless of current step.
-      send(view.pid, {:receipt_processing_status, "Extracting text..."})
+      # A mid-pipeline update is accepted at any step without crashing. The status
+      # text only renders on the :processing step, but the assign is stored
+      # regardless of current step.
+      send(view.pid, {:receipt_updated, %{stage: :extracted, condition: :ok}})
 
       # Verify the view is still alive and rendering the upload step correctly
       assert_eventually(fn ->
@@ -400,8 +429,13 @@ defmodule GroceryPlannerWeb.ReceiptLiveTest do
     test "shows error when receipt processing fails via PubSub", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/receipts/scan")
 
-      fake_receipt = %{id: Ecto.UUID.generate(), account_id: Ecto.UUID.generate()}
-      send(view.pid, {:receipt_failed, fake_receipt, :ocr_service_unavailable})
+      fake_receipt = %{
+        stage: :pending,
+        condition: :failed,
+        failure_reason: "ocr_service_unavailable"
+      }
+
+      send(view.pid, {:receipt_updated, fake_receipt})
 
       assert_eventually(fn ->
         html = render(view)
@@ -413,8 +447,8 @@ defmodule GroceryPlannerWeb.ReceiptLiveTest do
     test "receipt_failed returns to upload step", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/receipts/scan")
 
-      fake_receipt = %{id: Ecto.UUID.generate(), account_id: Ecto.UUID.generate()}
-      send(view.pid, {:receipt_failed, fake_receipt, :timeout})
+      fake_receipt = %{stage: :pending, condition: :failed, failure_reason: "timeout"}
+      send(view.pid, {:receipt_updated, fake_receipt})
 
       assert_eventually(fn ->
         html = render(view)
@@ -468,8 +502,8 @@ defmodule GroceryPlannerWeb.ReceiptLiveTest do
     test "clear_error dismisses error message", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/receipts/scan")
 
-      fake_receipt = %{id: Ecto.UUID.generate(), account_id: Ecto.UUID.generate()}
-      send(view.pid, {:receipt_failed, fake_receipt, :timeout})
+      fake_receipt = %{stage: :pending, condition: :failed, failure_reason: "timeout"}
+      send(view.pid, {:receipt_updated, fake_receipt})
 
       assert_eventually(fn ->
         assert render(view) =~ "Processing failed"
@@ -712,7 +746,7 @@ defmodule GroceryPlannerWeb.ReceiptLiveTest do
       {:ok, _receipt} =
         Inventory.update_receipt(
           receipt,
-          %{merchant_name: "Test Store", purchase_date: ~D[2026-01-15], status: :completed},
+          %{merchant_name: "Test Store", purchase_date: ~D[2026-01-15]},
           authorize?: false,
           tenant: account.id
         )
@@ -747,7 +781,7 @@ defmodule GroceryPlannerWeb.ReceiptLiveTest do
       {:ok, receipt} =
         Inventory.update_receipt(
           receipt,
-          %{merchant_name: "Test Store", purchase_date: ~D[2026-01-15], status: :completed},
+          %{merchant_name: "Test Store", purchase_date: ~D[2026-01-15]},
           authorize?: false,
           tenant: account.id
         )

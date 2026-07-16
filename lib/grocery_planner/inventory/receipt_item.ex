@@ -10,6 +10,17 @@ defmodule GroceryPlanner.Inventory.ReceiptItem do
   postgres do
     table "receipt_items"
     repo GroceryPlanner.Repo
+
+    custom_indexes do
+      # Idempotency belt-and-braces for the persist stage (AI-006 §3): an
+      # extracted line's position uniquely keys it within a receipt, so a retried
+      # persist can never duplicate items. Partial (line_no IS NOT NULL) so
+      # manually-added review items — which have no position — are unconstrained.
+      index [:receipt_id, :line_no],
+        unique: true,
+        where: "line_no IS NOT NULL",
+        name: "receipt_items_receipt_id_line_no_index"
+    end
   end
 
   code_interface do
@@ -33,7 +44,8 @@ defmodule GroceryPlanner.Inventory.ReceiptItem do
         :confidence,
         :final_name,
         :final_quantity,
-        :final_unit
+        :final_unit,
+        :line_no
       ]
 
       argument :receipt_id, :uuid, allow_nil?: false
@@ -60,6 +72,9 @@ defmodule GroceryPlanner.Inventory.ReceiptItem do
     read :list_for_receipt do
       argument :receipt_id, :uuid, allow_nil?: false
       filter expr(receipt_id == ^arg(:receipt_id))
+      # Extraction order (matches the paper receipt); manually-added items
+      # (line_no IS NULL) sort last.
+      prepare build(sort: [line_no: :asc_nils_last])
     end
   end
 
@@ -87,6 +102,14 @@ defmodule GroceryPlanner.Inventory.ReceiptItem do
 
     attribute :raw_name, :string do
       allow_nil? false
+      public? true
+    end
+
+    # Position of this line in the extraction (0-based), or nil for items added
+    # manually during review. The (receipt_id, line_no) unique index makes the
+    # persist stage idempotent and gives the review screen a stable order that
+    # matches the paper receipt (AI-006 §3).
+    attribute :line_no, :integer do
       public? true
     end
 

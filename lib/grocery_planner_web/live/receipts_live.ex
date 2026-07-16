@@ -206,7 +206,7 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
                     <p class="font-medium truncate">
                       {receipt.merchant_name || "Unknown Merchant"}
                     </p>
-                    <.status_badge status={receipt.status} />
+                    <.status_badge receipt={receipt} />
                   </div>
                   <p class="text-sm text-base-content/70">
                     <%= if receipt.purchase_date do %>
@@ -265,7 +265,7 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
         <h2 class="text-2xl font-bold">
           {@receipt.merchant_name || "Receipt Details"}
         </h2>
-        <.status_badge status={@receipt.status} />
+        <.status_badge receipt={@receipt} />
         <button
           phx-click="delete_receipt"
           phx-value-id={@receipt.id}
@@ -276,15 +276,17 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
         </button>
       </div>
 
-      <%= case @receipt.status do %>
-        <% :pending -> %>
-          <.processing_state message="Waiting to process..." />
-        <% :processing -> %>
-          <.processing_state message="Extracting items from receipt..." />
-        <% :failed -> %>
-          <.error_state message="Failed to process receipt. Please try again." />
-        <% :completed -> %>
+      <%= cond do %>
+        <% @receipt.condition == :failed -> %>
+          <.error_state message={
+            @receipt.failure_reason || "Failed to process receipt. Please try again."
+          } />
+        <% @receipt.condition == :awaiting_ai -> %>
+          <.processing_state message="Waiting for the AI service..." />
+        <% @receipt.stage in [:ready_for_review, :confirmed] -> %>
           <.review_panel receipt={@receipt} />
+        <% true -> %>
+          <.processing_state message="Extracting items from receipt..." />
       <% end %>
     </div>
     """
@@ -383,7 +385,7 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
           </div>
         <% end %>
 
-        <%= if @receipt.status == :completed do %>
+        <%= if @receipt.stage in [:ready_for_review, :confirmed] do %>
           <div class="mt-6 flex gap-2">
             <button phx-click="add_to_inventory" class="btn btn-primary flex-1">
               <.icon name="hero-plus" class="w-4 h-4 mr-2" /> Add to Inventory
@@ -398,15 +400,20 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
     """
   end
 
-  attr :status, :atom, required: true
+  attr :receipt, :map, required: true
 
   defp status_badge(assigns) do
+    # condition (how it's faring) wins over stage (where it got) for the badge —
+    # a failed/awaiting receipt is what the user needs to see (AI-006 §2).
     {class, text} =
-      case assigns.status do
-        :pending -> {"badge-ghost", "Pending"}
-        :processing -> {"badge-info", "Processing"}
-        :completed -> {"badge-success", "Completed"}
-        :failed -> {"badge-error", "Failed"}
+      case {assigns.receipt.condition, assigns.receipt.stage} do
+        {:failed, _} -> {"badge-error", "Failed"}
+        {:awaiting_ai, _} -> {"badge-warning", "Waiting for AI"}
+        {_, :pending} -> {"badge-ghost", "Pending"}
+        {_, :extracted} -> {"badge-info", "Processing"}
+        {_, :items_created} -> {"badge-info", "Processing"}
+        {_, :ready_for_review} -> {"badge-success", "Ready for review"}
+        {_, :confirmed} -> {"badge-success", "Confirmed"}
         _ -> {"badge-ghost", "Unknown"}
       end
 
@@ -476,13 +483,11 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
       [file_params | _] ->
         case ReceiptProcessor.upload(file_params, user, account) do
           {:ok, receipt} ->
-            # Subscribe to PubSub for real-time updates
+            # Subscribe to PubSub for real-time updates. The pipeline was already
+            # enqueued by ReceiptProcessor.upload/4.
             if connected?(socket) do
               Phoenix.PubSub.subscribe(GroceryPlanner.PubSub, "receipt:#{receipt.id}")
             end
-
-            # Trigger immediate processing
-            AshOban.run_trigger(receipt, :process)
 
             # Clean up temp file
             File.rm(file_params.path)
@@ -600,11 +605,13 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
   def handle_event("retry_processing", _, socket) do
     receipt = socket.assigns.selected_receipt
 
-    # Reset receipt to pending status so AshOban will pick it up
-    case Inventory.update_receipt(receipt, %{status: :pending},
-           actor: socket.assigns.current_user
-         ) do
+    # Retry = clear the failure and re-enqueue the worker for the current stage
+    # (AI-006 §2). The milestone is preserved, so an idempotent stage resumes
+    # exactly where it stopped — no bespoke resume logic.
+    case Inventory.clear_condition(receipt, actor: socket.assigns.current_user) do
       {:ok, updated_receipt} ->
+        GroceryPlanner.Inventory.Receipts.Pipeline.enqueue_for_stage(updated_receipt)
+
         socket =
           socket
           |> assign(:selected_receipt, updated_receipt)
@@ -654,7 +661,9 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
   end
 
   @impl true
-  def handle_info({:receipt_processed, receipt}, socket) do
+  def handle_info({:receipt_updated, receipt}, socket) do
+    # Durable stage/condition is already written; this is just the UI catching up
+    # (AI-006 §1). Reload the list and, if the updated receipt is open, its detail.
     socket =
       socket
       |> load_receipts()
@@ -665,27 +674,20 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
           s
         end
       end)
-      |> put_flash(:info, "Receipt processed successfully!")
+      |> maybe_flash_for(receipt)
 
     {:noreply, socket}
   end
 
-  @impl true
-  def handle_info({:receipt_failed, receipt, reason}, socket) do
-    socket =
-      socket
-      |> load_receipts()
-      |> then(fn s ->
-        if s.assigns.selected_receipt && s.assigns.selected_receipt.id == receipt.id do
-          load_receipt_detail(s, receipt.id)
-        else
-          s
-        end
-      end)
-      |> put_flash(:error, "Receipt processing failed: #{inspect(reason)}")
-
-    {:noreply, socket}
+  defp maybe_flash_for(socket, %{condition: :failed} = receipt) do
+    put_flash(socket, :error, "Receipt processing failed: #{receipt.failure_reason}")
   end
+
+  defp maybe_flash_for(socket, %{stage: stage}) when stage in [:ready_for_review, :confirmed] do
+    put_flash(socket, :info, "Receipt processed successfully!")
+  end
+
+  defp maybe_flash_for(socket, _receipt), do: socket
 
   # Private helpers
 
@@ -714,8 +716,10 @@ defmodule GroceryPlannerWeb.ReceiptsLive do
 
         socket = assign(socket, :selected_receipt, receipt)
 
-        # Subscribe to PubSub for real-time updates on pending/processing receipts
-        if receipt.status in [:pending, :processing] and connected?(socket) do
+        # Subscribe to PubSub while the receipt is still moving through the
+        # pipeline (not yet ready for review, or waiting on the AI service).
+        if (receipt.stage in [:pending, :extracted, :items_created] or
+              receipt.condition == :awaiting_ai) and connected?(socket) do
           Phoenix.PubSub.subscribe(GroceryPlanner.PubSub, "receipt:#{receipt.id}")
         end
 

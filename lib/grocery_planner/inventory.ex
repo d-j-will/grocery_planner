@@ -70,6 +70,10 @@ defmodule GroceryPlanner.Inventory do
       define :get_receipt, action: :read, get_by: [:id]
       define :find_receipt_by_hash, action: :find_by_hash, args: [:file_hash], get?: true
       define :update_receipt, action: :update
+      define :clear_condition, action: :clear_condition
+      define :mark_items_created, action: :mark_items_created
+      define :mark_ready_for_review, action: :mark_ready_for_review
+      define :mark_confirmed, action: :mark_confirmed
       define :destroy_receipt, action: :destroy
     end
 
