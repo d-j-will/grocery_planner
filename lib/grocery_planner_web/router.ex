@@ -1,6 +1,8 @@
 defmodule GroceryPlannerWeb.Router do
   use GroceryPlannerWeb, :router
 
+  import Oban.Web.Router
+
   pipeline :browser do
     plug(:accepts, ["html"])
     plug(:fetch_session)
@@ -13,6 +15,12 @@ defmodule GroceryPlannerWeb.Router do
 
   pipeline :require_authenticated_user do
     plug(GroceryPlannerWeb.Auth, :require_authenticated_user)
+  end
+
+  # Operator-only: the Oban dashboard shows job args across all tenants, so it is
+  # gated to an admin-email allowlist on top of authentication (see RequireAdmin).
+  pipeline :require_admin do
+    plug(GroceryPlannerWeb.Plugs.RequireAdmin)
   end
 
   pipeline :api do
@@ -62,6 +70,14 @@ defmodule GroceryPlannerWeb.Router do
     live("/receipts", ReceiptsLive)
     live("/receipts/scan", ReceiptLive, :index)
     live("/receipts/:id", ReceiptsLive)
+  end
+
+  # Oban Web dashboard — discarded/cancelled job visibility (AI-006 §7).
+  # Behind auth + admin allowlist; cross-tenant, so never plain-authenticated.
+  scope "/admin" do
+    pipe_through([:browser, :require_authenticated_user, :require_admin])
+
+    oban_dashboard("/oban")
   end
 
   # Other scopes may use custom stacks.

@@ -151,6 +151,10 @@ config :phoenix, :json_library, Jason
 # OpenTelemetry base config
 config :opentelemetry, :resource, service: [name: "grocery-planner-web", version: "0.1.0"]
 
+# Operator allowlist for the /admin/oban dashboard (cross-tenant). Empty by
+# default → deny; prod is populated from ADMIN_EMAILS in runtime.exs.
+config :grocery_planner, :admin_emails, []
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

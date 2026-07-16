@@ -93,6 +93,9 @@ config :opentelemetry,
   span_processor: :batch,
   traces_exporter: :none
 
+# Dev convenience: the repo owner can reach /admin/oban without setting env.
+config :grocery_planner, :admin_emails, ["davewil1973@gmail.com"]
+
 config :opentelemetry_exporter,
   otlp_protocol: :grpc,
   otlp_endpoint: System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")

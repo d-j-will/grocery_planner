@@ -12,6 +12,7 @@ defmodule GroceryPlanner.Application do
     setup_opentelemetry()
 
     children = [
+      GroceryPlanner.PromEx,
       GroceryPlannerWeb.Telemetry,
       GroceryPlanner.Repo,
       {Oban,

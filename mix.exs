@@ -77,6 +77,10 @@ defmodule GroceryPlanner.MixProject do
       {:req, "~> 0.5"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
+      # Metrics egress (Prometheus /metrics) + bundled Grafana dashboards
+      {:prom_ex, "~> 1.11.0"},
+      # Oban dashboard — free/Apache-2.0 since 2025-01-16 (discarded-job visibility)
+      {:oban_web, "~> 2.11"},
       {:gettext, "~> 0.26"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},

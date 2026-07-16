@@ -31,6 +31,16 @@ config :grocery_planner,
        :receipt_upload_dir,
        System.get_env("RECEIPT_STORAGE_PATH", "priv/static/uploads/receipts")
 
+# Operator allowlist for the /admin/oban dashboard. Comma-separated emails.
+# Only applied when ADMIN_EMAILS is set, so it doesn't clobber the compile-time
+# allowlist (config.exs default [] / dev.exs / test.exs) in envs that don't use
+# the env var. Unset in prod → deny everyone (fails closed, cross-tenant surface).
+if admin_emails = System.get_env("ADMIN_EMAILS") do
+  config :grocery_planner,
+         :admin_emails,
+         admin_emails |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+end
+
 # AI Service Configuration — set in all environments so the AiClient base URL
 # is resolved consistently (dev/test/prod) rather than only under :prod.
 config :grocery_planner,

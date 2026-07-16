@@ -46,6 +46,12 @@ defmodule GroceryPlannerWeb.Endpoint do
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
+  # Prometheus scrape endpoint (GET /metrics). Served before session/parsing;
+  # passes through for every other path. NOTE: currently reachable on the app
+  # port with no auth — blocking /metrics at the reverse proxy (so it is only
+  # scrapeable internally) is deployment wiring tracked in grocery_planner-k9c.
+  plug PromEx.Plug, prom_ex_module: GroceryPlanner.PromEx
+
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],

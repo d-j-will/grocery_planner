@@ -56,6 +56,14 @@ config :grocery_planner, :features,
 
 config :grocery_planner, Oban, testing: :manual
 
+# Known admin for the /admin/oban gating tests.
+config :grocery_planner, :admin_emails, ["admin@example.com"]
+
+# Push the receipt-metrics poller far out so it never fires during the suite —
+# it would run in a separate process outside the Ecto sandbox and log noise.
+# Tests that need the gauge call execute_receipt_metrics/0 directly.
+config :grocery_planner, :receipt_metrics_poll_rate, :timer.hours(1)
+
 # Disable OTEL tracing in tests
 config :opentelemetry,
   traces_exporter: :none,
