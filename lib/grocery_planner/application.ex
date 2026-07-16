@@ -43,12 +43,19 @@ defmodule GroceryPlanner.Application do
   @doc false
   def reinit_opentelemetry, do: setup_opentelemetry()
 
+  # Defaults to true so dev/test keep attaching handlers (both set
+  # `traces_exporter: :none`, so nothing leaves the box). runtime.exs sets it
+  # explicitly in prod: without a collector configured there is nothing to export
+  # to, and attaching handlers would pay the full instrumentation cost to produce
+  # spans that are dropped.
   defp setup_opentelemetry do
-    OpentelemetryPhoenix.setup()
-    OpentelemetryEcto.setup([:grocery_planner, :repo])
+    if Application.get_env(:grocery_planner, :otel_enabled, true) do
+      OpentelemetryPhoenix.setup()
+      OpentelemetryEcto.setup([:grocery_planner, :repo])
 
-    if Code.ensure_loaded?(OpentelemetryOban) do
-      OpentelemetryOban.setup()
+      if Code.ensure_loaded?(OpentelemetryOban) do
+        OpentelemetryOban.setup()
+      end
     end
   rescue
     error ->

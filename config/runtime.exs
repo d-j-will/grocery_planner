@@ -122,6 +122,49 @@ if config_env() == :prod do
 
   # ## Configuring the mailer
   #
+  # OpenTelemetry: instrument only when a collector is actually configured.
+  #
+  # With no config at all the exporter defaults to http://localhost:4317, so every
+  # span is batched, shipped nowhere and dropped — full instrumentation cost for
+  # zero visibility, plus background export errors. An enabled-but-unconfigured
+  # exporter therefore says so and disables itself, rather than silently pretending
+  # to work. Telemetry must never take the app down, so this warns instead of
+  # raising.
+  otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+  otel_enabled? =
+    case {System.get_env("OTEL_ENABLED"), otel_endpoint} do
+      {"true", endpoint} when endpoint not in [nil, ""] ->
+        true
+
+      {"true", _} ->
+        IO.warn("""
+        OTEL_ENABLED=true but OTEL_EXPORTER_OTLP_ENDPOINT is unset — tracing DISABLED.
+        Set it to your collector (e.g. http://collector:4317) to enable tracing.
+        """)
+
+        false
+
+      _ ->
+        false
+    end
+
+  # Read by setup_opentelemetry/0 in application.ex: when false, the telemetry
+  # handlers are never attached, so no spans are created in the first place.
+  config :grocery_planner, :otel_enabled, otel_enabled?
+
+  if otel_enabled? do
+    config :opentelemetry,
+      span_processor: :batch,
+      traces_exporter: :otlp
+
+    config :opentelemetry_exporter,
+      otlp_protocol: :grpc,
+      otlp_endpoint: otel_endpoint
+  else
+    config :opentelemetry, traces_exporter: :none
+  end
+
   # In production you need to configure the mailer to use a different adapter.
   # Here is an example configuration for Mailgun:
   #

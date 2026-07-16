@@ -32,6 +32,13 @@ services:
       RECEIPT_PROCESSING_ENABLED: "true"
       SEMANTIC_SEARCH_ENABLED: "true"
       AI_CATEGORIZATION_ENABLED: "false" # off for v1 (real-ML classification not enabled yet); don't serve stub categories. GPU-local path deferred to grocery_planner-89l
+      # Tracing: off until a collector exists on the homelab (INFRA-002 Grafana
+      # stack). Flip to "true" AND set OTEL_EXPORTER_OTLP_ENDPOINT together —
+      # enabling without an endpoint disables itself with a warning rather than
+      # exporting into the void. Until then setup is skipped entirely, so no spans
+      # are created and nothing is dropped.
+      OTEL_ENABLED: "false"
+      # OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4317
     volumes:
       - receipt-uploads:/data/uploads/receipts
     networks:
