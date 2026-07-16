@@ -69,6 +69,12 @@ jobs:
       - name: Run Credo
         run: mix credo || true
 
+      # Ratcheting hex.audit gate: fails on any advisory/retirement NEW relative
+      # to the 2026-07-17 baseline (the EEF/OSV wave, tracked in grocery_planner-yg5).
+      # Blocking — unlike Credo — so a fresh advisory can't slip in unnoticed.
+      - name: Security advisories (hex.audit gate)
+        run: mix grocery_planner.hex_audit_gate
+
       - name: Run Tests
         run: mix test
 
