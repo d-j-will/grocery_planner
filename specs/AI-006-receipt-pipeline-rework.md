@@ -1,6 +1,7 @@
 # AI-006: Receipt Pipeline Rework — staged workers, honest contract
 
-**Status:** design complete — all sections firm. Ready for per-arc implementation planning.
+**Status:** design complete — all sections firm. Field names settled (`stage` +
+`condition`); prod data confirmed disposable. Ready for per-arc implementation.
 **Date:** 2026-07-16
 **Supersedes the pipeline built in:** AI-003 (`4a51ab8`)
 **Related cards:** `reactor-is-not-durable-oban-owns-durability-defer-sagas-until-a-step-has-a-committed-side-effect`, `architectural-decisions-live-in-org-brain-not-in-repo-adr-files`
@@ -105,7 +106,7 @@ Each stage is its own Oban job, enqueued directly by the previous stage.
   exist in free Oban). Config fix, free.
 - **PubSub stays as-is** (`receipt:<id>`), with one rule made explicit: **it is a UI
   hint, never load-bearing.** Each stage writes durable state, *then* broadcasts. Lose
-  the message and `receipt.status` is still true; the LiveView catches up on reconnect.
+  the message and `receipt.stage` is still true; the LiveView catches up on reconnect.
 - **No message broker.** RabbitMQ/Broadway was evaluated and rejected: there is no
   stream, Oban already provides durability on a datastore we already operate and back
   up, and a broker would add a failure domain and a third queue to a system whose
@@ -119,41 +120,58 @@ Each stage is its own Oban job, enqueued directly by the previous stage.
 
 ## 2. State model — SETTLED
 
-**`receipt.status` records the furthest durable milestone, never in-flight activity.**
+**Two fields.** The existing `status` column is renamed to **`stage`** and records the
+furthest durable milestone; a new **`condition`** column records how the receipt is
+faring. `status` is retired — a word so overloaded it invited exactly the "what does
+this mean" confusion the split exists to remove.
 
 ```
-:pending → :extracted → :items_created → :ready_for_review → :confirmed
+stage:      :pending → :extracted → :items_created → :ready_for_review → :confirmed
+condition:  :ok (default) │ :awaiting_ai │ :failed
 ```
 
 Today's `:processing` is the bug in miniature: it means "something started and we don't
-know what", which is exactly why stuck is indistinguishable from working.
+know what", which is exactly why stuck is indistinguishable from working. `stage`
+deliberately does **not** mirror "extracting…"/"matching…" — Oban already knows what is
+executing; duplicating that into the receipt would be a second source of truth, the
+failure this whole spec exists to remove.
 
-These states deliberately do **not** mirror "extracting…"/"matching…". Oban already
-knows what is executing; duplicating that into the receipt would be a second source of
-truth — the failure this whole spec exists to remove.
+### 2a. Stage vs condition — SETTLED: two fields
 
-### 2a. Milestone vs condition — SETTLED: two fields
-
-`:failed` and `:awaiting_ai` are **not milestones**. A receipt "awaiting AI" has still
-only reached `:pending`; one that failed did so *at* some milestone. One enum meaning
-two things is exactly what `:processing` does wrong.
+`:failed` and `:awaiting_ai` are **not stages**. A receipt "awaiting AI" has still only
+reached `:pending`; one that failed did so *at* some stage. One enum meaning two things
+is exactly what `:processing` does wrong. So they split onto two orthogonal axes —
+**where it got** and **how it's doing**:
 
 | Field | Values | Behaviour |
 |---|---|---|
-| `status` | `:pending → :extracted → :items_created → :ready_for_review → :confirmed` | **Monotonic.** Only ever advances. |
+| `stage` | `:pending → :extracted → :items_created → :ready_for_review → :confirmed` | **Monotonic.** Only ever advances. |
 | `condition` | `:ok` (default) / `:awaiting_ai` / `:failed` | Orthogonal, resettable. |
 | `failure_reason` | string | `nil` unless `condition == :failed`. |
 
+No value appears in both axes — a check worth stating, because it's what proves they're
+genuinely orthogonal rather than one field wearing two hats. A fresh receipt is
+`stage: :pending, condition: :ok` ("at the start, and fine"), never "pending pending".
+
 Invariants (Ash validations): `condition == :failed` requires a `failure_reason`, and
-implies `status != :confirmed`.
+implies `stage != :confirmed`.
 
 **Why this is strictly better than today.** A failed receipt becomes
-`status: :extracted, condition: :failed` — it tells you it got as far as extraction and
-then failed. Today's flat `:failed` throws that away.
+`stage: :extracted, condition: :failed` — it tells you it got as far as extraction and
+then failed *there*. Today's flat `:failed` throws that away.
 
 **Retry falls out for free:** set `condition: :ok` and re-enqueue. The milestone is
 preserved, so idempotent stages resume exactly where they stopped — no bespoke
 resume logic.
+
+**Migration (prod data is disposable — confirmed 2026-07-16).** `status` → `stage` is
+not a clean rename: today's `:failed` leaves the position axis for `condition`, and old
+rows never recorded *where* they failed. Because prod receipts on `food.davewil.dev` are
+throwaway, the mapping can be lossy: `:pending → :pending`, `:processing → :pending`,
+`:completed → :ready_for_review`, `:failed → stage: :pending, condition: :failed`. No
+data-driven backfill needed. If that ever stops being true (real receipts before Arc 2
+ships), the `:completed` split must instead be decided per-row by what exists (items?
+inventory entries?).
 
 > **Honest caveat, stated so it doesn't rot into a bug.** `:awaiting_ai` *is* a
 > denormalised projection of Oban state (the extract job is snoozing). We accept the
@@ -182,7 +200,7 @@ This stage is also `c29`'s fix for the categorisation path, and it's mostly subt
 preserved; only the execution model improves.
 
 **Reconciler `where`** follows from the above:
-`status in [:pending, :extracted, :items_created] and condition != :failed and
+`stage in [:pending, :extracted, :items_created] and condition != :failed and
 updated_at < ago(5, :minute)`.
 
 A receipt at `:ready_for_review` whose categorise never ran is **not** stranded — it's
@@ -206,7 +224,7 @@ Every stage:
 
 This kills all three `cxk` bugs mechanically rather than by care:
 
-- **Premature status** — impossible; status advances *inside* the transaction that
+- **Premature completion** — impossible; `stage` advances *inside* the transaction that
   writes the items. `Ash.bulk_create` with `transaction: :all`.
 - **Duplicates on retry** — impossible; one transaction means partial writes don't
   exist. Commit-then-crash retries, sees the milestone reached, no-ops.
@@ -230,12 +248,12 @@ in arbitrary Postgres order — the review screen doesn't match the paper receip
 user's hand. That's a latent UX bug that `line_no` fixes; the duplicate-proofing is a
 free side-benefit rather than the justification.
 
-**Re-extraction semantics.** Retry can never re-extract: once `status == :extracted` the
+**Re-extraction semantics.** Retry can never re-extract: once `stage == :extracted` the
 extract stage's postcondition check no-ops, so items are created exactly once, at
 `:items_created`. There is no conflict to resolve on the retry path.
 
 An explicit user **rescan** is a *different operation*, not a retry: it deletes existing
-items and resets `status` to `:pending` in one transaction. Distinct action, distinct
+items and resets `stage` to `:pending` in one transaction. Distinct action, distinct
 semantics, no index conflict. Do not model it as a retry.
 
 **Lifeline:** free `Oban.Plugins.Lifeline` rescues jobs stuck `executing` after a
@@ -256,14 +274,14 @@ background worker fails *silently* (see CLAUDE.md), which is the one failure mod
 worth trading for convenience.
 
 This is also faster than today: the current `:process` trigger scans
-`where status == :pending` on `scheduler_cron("* * * * *")`, so every receipt already
-waits up to 60s before anything starts.
+`where status == :pending` (today's column name) on `scheduler_cron("* * * * *")`, so
+every receipt already waits up to 60s before anything starts.
 
 **Reconciler:** one trigger with a real `scheduler_cron` (~5 min) whose `where` matches
-stranded records — non-terminal milestone, not currently progressing, e.g.
-`status in [:pending, :extracted, :items_created] and updated_at < ago(5, :minute)`.
-Because status is a durable milestone, the state *is* the queue; no extra bookkeeping.
-(Exact `where` depends on resolving milestone-vs-condition above.)
+stranded records — non-terminal stage, not currently progressing:
+`stage in [:pending, :extracted, :items_created] and condition != :failed and
+updated_at < ago(5, :minute)`. Because `stage` is a durable milestone, the state *is* the
+queue; no extra bookkeeping.
 
 > **Gotcha:** the reconciler's `where` depends on time, so it needs
 > `stream_with: :full_read`. The AshOban docs are explicit — `:keyset` (the default) is
