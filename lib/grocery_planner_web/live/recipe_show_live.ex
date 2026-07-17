@@ -55,7 +55,7 @@ defmodule GroceryPlannerWeb.RecipeShowLive do
       )
 
     case result do
-      {:ok, _} ->
+      :ok ->
         socket =
           socket
           |> put_flash(:info, "Recipe deleted successfully")

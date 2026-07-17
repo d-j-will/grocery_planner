@@ -99,14 +99,6 @@ defmodule GroceryPlannerWeb.InventoryLive.TagHandlers do
         result = Inventory.destroy_grocery_item_tag(tag, authorize?: false)
 
         case result do
-          {:ok, _} ->
-            socket =
-              socket
-              |> GroceryPlannerWeb.InventoryLive.load_data()
-              |> put_flash(:info, "Tag deleted successfully")
-
-            {:noreply, socket}
-
           :ok ->
             socket =
               socket

@@ -53,7 +53,10 @@ defmodule GroceryPlanner.MealPlanning.Voting do
              )
          ) do
       {:ok, [entry]} ->
-        MealPlanning.destroy_vote_entry(entry, actor: actor, tenant: account_id)
+        case MealPlanning.destroy_vote_entry(entry, actor: actor, tenant: account_id) do
+          :ok -> {:ok, nil}
+          {:error, _} = error -> error
+        end
 
       {:ok, []} ->
         {:ok, nil}

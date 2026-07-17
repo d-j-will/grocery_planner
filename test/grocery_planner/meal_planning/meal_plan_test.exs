@@ -274,7 +274,7 @@ defmodule GroceryPlanner.MealPlanning.MealPlanTest do
         )
         |> Ash.create(actor: user, tenant: account.id)
 
-      assert {:ok, _} = Ash.destroy(meal_plan, actor: user)
+      assert :ok = Ash.destroy(meal_plan, actor: user)
 
       {:ok, meal_plans} = Ash.read(MealPlan, actor: user, tenant: account.id)
       assert length(meal_plans) == 0

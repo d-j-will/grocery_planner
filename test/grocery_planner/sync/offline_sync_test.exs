@@ -29,7 +29,8 @@ defmodule GroceryPlanner.Sync.OfflineSyncTest do
       {:ok, deleted_item} =
         Inventory.destroy_grocery_item(item,
           actor: user,
-          tenant: account.id
+          tenant: account.id,
+          return_destroyed?: true
         )
 
       assert deleted_item.deleted_at != nil
@@ -60,7 +61,8 @@ defmodule GroceryPlanner.Sync.OfflineSyncTest do
       {:ok, deleted_list} =
         Shopping.destroy_shopping_list(list,
           actor: user,
-          tenant: account.id
+          tenant: account.id,
+          return_destroyed?: true
         )
 
       assert deleted_list.deleted_at != nil
@@ -82,7 +84,8 @@ defmodule GroceryPlanner.Sync.OfflineSyncTest do
       {:ok, deleted_recipe} =
         Recipes.destroy_recipe(recipe,
           actor: user,
-          tenant: account.id
+          tenant: account.id,
+          return_destroyed?: true
         )
 
       assert deleted_recipe.deleted_at != nil
@@ -221,7 +224,7 @@ defmodule GroceryPlanner.Sync.OfflineSyncTest do
       # Timestamp before deletion
       since = DateTime.add(DateTime.utc_now(), -1, :second)
 
-      {:ok, _deleted} =
+      :ok =
         Inventory.destroy_grocery_item(item, actor: user, tenant: account.id)
 
       {:ok, synced} = Inventory.sync_grocery_items(since, actor: user, tenant: account.id)

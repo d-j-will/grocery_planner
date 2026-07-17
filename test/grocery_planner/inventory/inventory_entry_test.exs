@@ -205,7 +205,7 @@ defmodule GroceryPlanner.Inventory.InventoryEntryTest do
     end
 
     test "deletes an inventory entry", %{account: account, user: _user, entry: entry} do
-      assert {:ok, _} = Ash.destroy(entry, authorize?: false, tenant: account.id)
+      assert :ok = Ash.destroy(entry, authorize?: false, tenant: account.id)
 
       entries =
         GroceryPlanner.Inventory.list_inventory_entries!(authorize?: false, tenant: account.id)

@@ -120,7 +120,7 @@ defmodule GroceryPlannerWeb.FamilyLive do
     account = socket.assigns.current_account
 
     case Family.destroy_family_member(member, actor: user, tenant: account.id) do
-      {:ok, _} ->
+      :ok ->
         socket =
           socket
           |> load_data()

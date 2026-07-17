@@ -297,7 +297,7 @@ defmodule GroceryPlannerWeb.Api.SyncController do
       {domain, resource} = Map.fetch!(@resource_types, type)
 
       case apply(domain, :"destroy_#{resource}", [record, opts]) do
-        {:ok, _record} ->
+        :ok ->
           %{op: "delete", type: type, id: id, status: "ok"}
 
         {:error, error} ->

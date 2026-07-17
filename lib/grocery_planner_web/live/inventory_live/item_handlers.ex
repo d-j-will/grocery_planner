@@ -150,7 +150,7 @@ defmodule GroceryPlannerWeb.InventoryLive.ItemHandlers do
           )
 
         case result do
-          {:ok, _} ->
+          :ok ->
             socket =
               socket
               |> GroceryPlannerWeb.InventoryLive.load_data()

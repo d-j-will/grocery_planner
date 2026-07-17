@@ -85,7 +85,7 @@ defmodule GroceryPlanner.Family.FamilyMemberTest do
 
       member = create_family_member(account, user, %{name: "Sam"})
 
-      assert {:ok, _} = Family.destroy_family_member(member, actor: user, tenant: account.id)
+      assert :ok = Family.destroy_family_member(member, actor: user, tenant: account.id)
 
       # Should not appear in normal reads
       members = Family.list_family_members!(actor: user, tenant: account.id)

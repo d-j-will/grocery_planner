@@ -174,7 +174,7 @@ defmodule GroceryPlanner.Recipes.RecipeAuthorizationTest do
           tenant: account.id
         )
 
-      assert {:ok, _} = Recipes.destroy_recipe(recipe, actor: user, tenant: account.id)
+      assert :ok = Recipes.destroy_recipe(recipe, actor: user, tenant: account.id)
     end
 
     test "denies user from destroying another account's recipe" do

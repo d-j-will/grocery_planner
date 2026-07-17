@@ -46,14 +46,6 @@ defmodule GroceryPlannerWeb.InventoryLive.CategoryHandlers do
           )
 
         case result do
-          {:ok, _} ->
-            socket =
-              socket
-              |> GroceryPlannerWeb.InventoryLive.load_data()
-              |> put_flash(:info, "Category deleted successfully")
-
-            {:noreply, socket}
-
           :ok ->
             socket =
               socket

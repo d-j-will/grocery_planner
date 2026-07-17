@@ -109,7 +109,7 @@ defmodule GroceryPlanner.Inventory.GroceryItemTest do
     end
 
     test "deletes a grocery item", %{account: account, user: _user, item: item} do
-      assert {:ok, _} = Ash.destroy(item, authorize?: false, tenant: account.id)
+      assert :ok = Ash.destroy(item, authorize?: false, tenant: account.id)
 
       items = GroceryPlanner.Inventory.list_grocery_items!(authorize?: false, tenant: account.id)
       assert items == []

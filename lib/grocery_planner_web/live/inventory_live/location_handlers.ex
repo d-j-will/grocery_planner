@@ -46,14 +46,6 @@ defmodule GroceryPlannerWeb.InventoryLive.LocationHandlers do
           )
 
         case result do
-          {:ok, _} ->
-            socket =
-              socket
-              |> GroceryPlannerWeb.InventoryLive.load_data()
-              |> put_flash(:info, "Storage location deleted successfully")
-
-            {:noreply, socket}
-
           :ok ->
             socket =
               socket

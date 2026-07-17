@@ -42,14 +42,14 @@ defmodule GroceryPlanner.MixProject do
   defp deps do
     [
       {:usage_rules, "~> 0.1", only: [:dev]},
-      {:ex_money_sql, "~> 1.0"},
+      {:ex_money_sql, "~> 2.0"},
       {:ex_cldr, "~> 2.0"},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:ash_money, "~> 0.2"},
       {:tidewave, "~> 0.5", only: [:dev]},
       {:live_debugger, "~> 0.4", only: [:dev]},
       {:ash_postgres, "~> 2.0"},
-      {:ash, "~> 3.0"},
+      {:ash, "~> 3.29"},
       {:ash_json_api, "~> 1.0"},
       {:open_api_spex, "~> 3.0"},
       {:picosat_elixir, "~> 0.2"},
@@ -81,7 +81,7 @@ defmodule GroceryPlanner.MixProject do
       {:prom_ex, "~> 1.11.0"},
       # Oban dashboard — free/Apache-2.0 since 2025-01-16 (discarded-job visibility)
       {:oban_web, "~> 2.11"},
-      {:gettext, "~> 0.26"},
+      {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
