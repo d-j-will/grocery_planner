@@ -16,7 +16,10 @@ defmodule GroceryPlanner.Application do
       GroceryPlannerWeb.Telemetry,
       GroceryPlanner.Repo,
       {Oban,
-       AshOban.config([GroceryPlanner.Inventory], Application.fetch_env!(:grocery_planner, Oban))},
+       AshOban.config(
+         [GroceryPlanner.Inventory, GroceryPlanner.Recipes],
+         Application.fetch_env!(:grocery_planner, Oban)
+       )},
       {DNSCluster, query: Application.get_env(:grocery_planner, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: GroceryPlanner.PubSub},
       # Start a worker by calling: GroceryPlanner.Worker.start_link(arg)

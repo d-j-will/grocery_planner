@@ -26,7 +26,14 @@ defmodule GroceryPlanner.Recipes.Recipe do
   end
 
   vectorize do
+    # Target the existing `:embedding` column (add_embeddings migration + the
+    # attribute below), NOT ash_ai's default `:full_text_vector` — there is no
+    # such column, so the declarative update failed with 42703 and semantic
+    # search silently ran on never-written vectors (z7h). This is also the column
+    # the recipe search reads.
     full_text do
+      name :embedding
+
       text(fn recipe ->
         ingredients =
           case recipe do
@@ -124,6 +131,15 @@ defmodule GroceryPlanner.Recipes.Recipe do
       primary? true
       soft? true
       change set_attribute(:deleted_at, &DateTime.utc_now/0)
+    end
+
+    # Cross-tenant stream for the embedding backfill (z7h). `allow_global` so a
+    # single pass spans every account; the backfill sets each record's tenant
+    # from `account_id` when it enqueues the trigger. Called only with
+    # `authorize?: false` from GroceryPlanner.Recipes.EmbeddingBackfill.
+    read :stream_for_backfill do
+      multitenancy :allow_global
+      filter expr(is_nil(deleted_at))
     end
 
     read :sync do
@@ -299,6 +315,17 @@ defmodule GroceryPlanner.Recipes.Recipe do
   end
 
   policies do
+    # The ash_ai embedding trigger runs the worker READ (via `:read`) and the
+    # embedding UPDATE with NO actor. Without this bypass the `:read` action's
+    # `relates_to_actor_via` policy returns empty for a nil actor, so AshOban sees
+    # the record as gone and cancels the job (`:trigger_no_longer_applies`) — the
+    # embedding silently never persists (z7h). AshObanInteraction only matches
+    # inside an AshOban trigger's own execution, and tenant isolation is still
+    # enforced by attribute multitenancy, so this opens nothing to normal callers.
+    bypass AshOban.Checks.AshObanInteraction do
+      authorize_if always()
+    end
+
     bypass action(:ash_ai_update_embeddings) do
       authorize_if always()
     end
@@ -423,10 +450,10 @@ defmodule GroceryPlanner.Recipes.Recipe do
       public? true
     end
 
-    attribute :embedding, :vector do
-      constraints dimensions: 384
-    end
-
+    # `:embedding` is declared by the ash_ai `vectorize` block (full_text name
+    # :embedding) — ash_ai insists on creating the vector field itself and errors
+    # if it's already declared here. The add_embeddings migration created the
+    # matching `embedding vector(384)` column, so no schema change.
     attribute :embedding_model, :string
 
     attribute :embedding_updated_at, :utc_datetime
