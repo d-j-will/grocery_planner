@@ -211,11 +211,19 @@ defmodule GroceryPlanner.Inventory.Receipts.PipelineTest do
       assert r.stage == :pending
     end
 
-    test "bad input (4xx) -> cancel + condition :failed with a reason", %{account: account} do
+    test "bad input (4xx) -> cancel + condition :failed, broadcasts the failure",
+         %{account: account} do
       stub_status(422, %{"error" => "unreadable image"})
       receipt = receipt_with_file(account)
 
+      # cxk symptom #1 was a failure that never reached the UI — the LiveView spun
+      # on "Processing" forever. Assert the producer side of the fix: a failed
+      # extraction writes :failed AND broadcasts it to the receipt topic.
+      Phoenix.PubSub.subscribe(GroceryPlanner.PubSub, "receipt:#{receipt.id}")
+
       assert {:cancel, _} = ExtractWorker.perform(job(receipt))
+
+      assert_receive {:receipt_updated, %{condition: :failed}}
 
       r = reload(receipt, account)
       assert r.condition == :failed

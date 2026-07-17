@@ -86,12 +86,27 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessor do
     do: check_duplicate(file_hash, account_id)
 
   def check_duplicate(file_hash, account_id) do
-    case Inventory.find_receipt_by_hash(file_hash, authorize?: false, tenant: account_id) do
+    # `find_by_hash` is a `get?: true` interface, so a *miss* would otherwise come
+    # back as `{:error, NotFound}` — indistinguishable from a real query failure.
+    # `not_found_error?: false` splits the two: absent => {:ok, nil}, genuine
+    # failure => {:error, _}, which is what lets us fail closed on the latter.
+    case Inventory.find_receipt_by_hash(file_hash,
+           authorize?: false,
+           tenant: account_id,
+           not_found_error?: false
+         ) do
       {:ok, nil} -> :ok
       {:ok, existing} -> {:error, {:duplicate_receipt, existing}}
-      # If query fails, allow upload
-      {:error, _} -> :ok
+      # Fail closed (cxk): if we cannot determine whether this is a duplicate we
+      # must NOT silently admit it — a receipt feeds inventory and spend counts,
+      # so a missed duplicate double-counts. Block the upload; the caller can
+      # retry, or override via `force: true`.
+      {:error, reason} -> {:error, {:duplicate_check_failed, reason}}
     end
+  rescue
+    # Some query failures (e.g. a malformed tenant) raise rather than return an
+    # error tuple. Same posture: fail closed, never fall through to allow.
+    e -> {:error, {:duplicate_check_failed, e}}
   end
 
   @doc """

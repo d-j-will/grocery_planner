@@ -189,6 +189,16 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessorTest do
       # Same hash should be allowed for different account
       assert :ok = ReceiptProcessor.check_duplicate("shared_hash", other_account.id)
     end
+
+    test "fails closed when the duplicate query itself errors (cxk)", %{account: account} do
+      # Force the dedupe query to fail rather than answer: a nil hash violates the
+      # find_by_hash action's required argument, so it returns {:error, _} — the
+      # same branch a real DB/connectivity failure would hit. check_duplicate must
+      # NOT fall through to :ok (fail-open): an unanswerable query blocks the
+      # upload so a possible duplicate can't silently double-count inventory/spend.
+      assert {:error, {:duplicate_check_failed, _reason}} =
+               ReceiptProcessor.check_duplicate(nil, account.id)
+    end
   end
 
   describe "parse_receipt_attrs/1 and parse_item_attrs_list/1" do
