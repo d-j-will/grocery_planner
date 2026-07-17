@@ -25,14 +25,15 @@ defmodule GroceryPlannerWeb.HealthControllerTest do
       assert body["version"] != nil
     end
 
-    test "returns degraded status when AI service is unavailable", %{conn: conn} do
+    test "returns degraded with 200 when AI service is unavailable", %{conn: conn} do
       # Stub AI service to return connection error
       Req.Test.stub(GroceryPlanner.AiClient, fn conn ->
         Plug.Conn.send_resp(conn, 503, "Service Unavailable")
       end)
 
       conn = get(conn, "/health_check")
-      body = json_response(conn, 503)
+      # Optional sidecar down => degraded, but the app stays in rotation (c29).
+      body = json_response(conn, 200)
 
       assert body["status"] == "degraded"
       assert body["checks"]["database"]["status"] == "ok"

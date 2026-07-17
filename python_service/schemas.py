@@ -165,119 +165,13 @@ class EmbedResponse(BaseModel):
 
 
 # =============================================================================
-# Job Management Schemas
+# Feature: Receipt OCR Extraction (internal shapes)
+#
+# The flat ExtractionResponsePayload above is the ONLY receipt contract the
+# Elixir app consumes. The models below are the internal structured shapes that
+# receipt_ocr.process_receipt() builds and that the Tesseract branch of
+# /api/v1/extract-receipt flattens from. They are NOT a wire contract.
 # =============================================================================
-
-class JobSubmitRequest(BaseModel):
-    """Request to submit a background job."""
-    tenant_id: str = Field(..., description="Tenant ID for multi-tenancy")
-    user_id: str = Field(..., description="User ID who submitted the job")
-    feature: str = Field(..., description="Feature name for the job")
-    payload: Dict[str, Any] = Field(..., description="Job input payload")
-    model_id: Optional[str] = Field(default=None, description="Specific model to use")
-    model_version: Optional[str] = Field(default=None, description="Specific model version")
-
-
-class JobStatusResponse(BaseModel):
-    """Response containing job status and details."""
-    id: Optional[str] = Field(default=None, alias="job_id", description="Job ID")
-    job_id: Optional[str] = Field(default=None, description="Job ID (deprecated, use id)")
-    tenant_id: Optional[str] = Field(default=None, description="Tenant ID")
-    user_id: Optional[str] = Field(default=None, description="User who submitted")
-    feature: str = Field(..., description="Feature name")
-    status: str = Field(..., description="Job status: queued, running, succeeded, failed")
-    input_payload: Optional[Dict[str, Any]] = Field(default=None, description="Job input")
-    output_payload: Optional[Dict[str, Any]] = Field(default=None, description="Job output (if completed)")
-    error_message: Optional[str] = Field(default=None, description="Error message (if failed)")
-    model_id: Optional[str] = Field(default=None, description="Model used")
-    model_version: Optional[str] = Field(default=None, description="Model version used")
-    created_at: Optional[str] = Field(default=None, description="Creation timestamp")
-    started_at: Optional[str] = Field(default=None, description="Start timestamp")
-    finished_at: Optional[str] = Field(default=None, description="Completion timestamp")
-    latency_ms: Optional[float] = Field(default=None, description="Execution latency in ms")
-    cost: Optional[float] = Field(default=None, description="Operation cost")
-
-    class Config:
-        populate_by_name = True
-
-
-class JobListResponse(BaseModel):
-    """Response containing a list of jobs."""
-    jobs: List[Dict[str, Any]] = Field(..., description="List of job records")
-    total: int = Field(..., description="Total jobs returned")
-    limit: int = Field(..., description="Limit used")
-    offset: int = Field(..., description="Offset used")
-
-
-# =============================================================================
-# Artifact Schemas
-# =============================================================================
-
-class ArtifactResponse(BaseModel):
-    """Response containing artifact details."""
-    id: str = Field(..., description="Artifact ID")
-    request_id: str = Field(..., description="Original request ID")
-    tenant_id: str = Field(..., description="Tenant ID")
-    user_id: Optional[str] = Field(default=None, description="User ID (null for system-initiated)")
-    feature: str = Field(..., description="Feature name")
-    input_payload: Optional[Dict[str, Any]] = Field(default=None, description="Input data")
-    output_payload: Optional[Dict[str, Any]] = Field(default=None, description="Output data")
-    status: str = Field(..., description="Operation status")
-    error_message: Optional[str] = Field(default=None, description="Error message if failed")
-    model_id: Optional[str] = Field(default=None, description="Model used")
-    model_version: Optional[str] = Field(default=None, description="Model version")
-    latency_ms: Optional[float] = Field(default=None, description="Latency in ms")
-    cost: Optional[float] = Field(default=None, description="Cost")
-    job_id: Optional[str] = Field(default=None, description="Associated job ID")
-    created_at: Optional[str] = Field(default=None, description="Creation timestamp")
-
-
-class ArtifactListResponse(BaseModel):
-    """Response containing a list of artifacts."""
-    artifacts: List[Dict[str, Any]] = Field(..., description="List of artifact records")
-    total: int = Field(..., description="Total artifacts returned")
-    limit: int = Field(..., description="Limit used")
-    offset: int = Field(..., description="Offset used")
-
-
-# =============================================================================
-# Feedback Schemas
-# =============================================================================
-
-class FeedbackRequest(BaseModel):
-    """Request to submit feedback on an AI operation."""
-    tenant_id: str = Field(..., description="Tenant ID")
-    user_id: str = Field(..., description="User providing feedback")
-    rating: str = Field(..., description="Rating: 'thumbs_up' or 'thumbs_down'")
-    note: Optional[str] = Field(default=None, description="Optional feedback note")
-    artifact_id: Optional[str] = Field(default=None, description="Associated artifact ID")
-    job_id: Optional[str] = Field(default=None, description="Associated job ID")
-
-
-class FeedbackResponse(BaseModel):
-    """Response confirming feedback submission."""
-    id: str = Field(..., description="Feedback ID")
-    tenant_id: str = Field(..., description="Tenant ID")
-    user_id: str = Field(..., description="User ID")
-    rating: str = Field(..., description="Rating value")
-    note: Optional[str] = Field(default=None, description="Feedback note")
-    artifact_id: Optional[str] = Field(default=None, description="Associated artifact ID")
-    job_id: Optional[str] = Field(default=None, description="Associated job ID")
-    created_at: Optional[str] = Field(default=None, description="Creation timestamp")
-
-
-# =============================================================================
-# Feature: Receipt OCR Extraction
-# =============================================================================
-
-class ReceiptExtractRequest(BaseModel):
-    """Request for OCR receipt extraction."""
-    version: str = Field(default="1.0", description="API version")
-    request_id: str = Field(..., description="Unique request identifier")
-    account_id: str = Field(..., description="Account ID for multi-tenancy")
-    image_path: str = Field(..., description="Local file path to receipt image")
-    options: Dict[str, Any] = Field(default_factory=dict, description="Optional processing options")
-
 
 class MerchantInfo(BaseModel):
     """Extracted merchant information."""
@@ -317,16 +211,6 @@ class ExtractionResult(BaseModel):
     line_items: List[LineItem] = Field(default_factory=list, description="Extracted line items")
     raw_ocr_text: str = Field(default="", description="Full raw OCR output")
     overall_confidence: float = Field(default=0.0, ge=0, le=1, description="Overall extraction quality")
-
-
-class ReceiptExtractResponse(BaseModel):
-    """Response containing receipt extraction results."""
-    version: str = Field(default="1.0", description="API version")
-    request_id: str = Field(..., description="Original request identifier")
-    status: str = Field(default="success", description="Processing status")
-    processing_time_ms: float = Field(..., description="Processing time in milliseconds")
-    model_version: str = Field(default="tesseract-5.x", description="OCR engine version")
-    extraction: ExtractionResult = Field(..., description="Extraction results")
 
 
 # =============================================================================

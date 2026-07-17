@@ -8,10 +8,8 @@ Features include categorization, receipt extraction, embeddings, and more.
 import time
 import os
 from contextlib import asynccontextmanager
-from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import FastAPI, HTTPException
 
 from schemas import (
     BaseRequest, BaseResponse,
@@ -19,18 +17,8 @@ from schemas import (
     BatchCategorizationRequestPayload, BatchCategorizationResponsePayload,
     BatchPrediction, ExtractionRequestPayload, ExtractionResponsePayload, ExtractedItem,
     EmbedRequest, EmbedResponse, EmbedBatchRequest, EmbeddingResult,
-    JobSubmitRequest, JobStatusResponse, JobListResponse,
-    ArtifactResponse, ArtifactListResponse,
-    FeedbackRequest, FeedbackResponse,
-    ReceiptExtractRequest, ReceiptExtractResponse,
     MealOptimizationRequestPayload,
     QuickSuggestionRequestPayload,
-)
-from database import init_db, get_db, JobStatus
-from jobs import submit_job, get_job, list_jobs, job_to_dict, register_job_handler
-from artifacts import (
-    create_artifact, get_artifact, list_artifacts, artifact_to_dict,
-    add_feedback, feedback_to_dict
 )
 from middleware import (
     setup_structured_logging,
@@ -85,18 +73,12 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     global classifier
 
-    # Initialize database
-    logger.info("Initializing database...")
-    init_db()
-
     # Initialize OpenTelemetry if enabled
     if settings.OTEL_ENABLED:
         try:
             from telemetry import setup_telemetry
-            from database import get_engine
             setup_telemetry(
                 app,
-                engine=get_engine(),
                 endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
                 service_name=settings.OTEL_SERVICE_NAME,
             )
@@ -143,8 +125,7 @@ app = FastAPI(
 if settings.DEBUG and settings.TIDEWAVE_ENABLED:
     try:
         from tidewave import install as tidewave_install
-        from database import get_engine as _get_engine
-        tidewave_install(app, sqlalchemy_engine=_get_engine())
+        tidewave_install(app)
         logger.info("Tidewave debugging enabled")
     except ImportError:
         logger.debug("Tidewave not installed, skipping AI-assisted debugging")
@@ -167,17 +148,14 @@ def health_check():
 
 
 @app.get("/health/ready")
-def readiness_check(db: Session = Depends(get_db)):
-    """Full readiness check with dependency validation."""
-    checks = {}
+def readiness_check():
+    """Full readiness check with dependency validation.
 
-    # Database connectivity
-    try:
-        from sqlalchemy import text
-        db.execute(text("SELECT 1"))
-        checks["database"] = {"status": "ok"}
-    except Exception as e:
-        checks["database"] = {"status": "error", "error": str(e)}
+    The sidecar is stateless (Oban on the Elixir side owns all job state), so
+    there is no datastore to probe here — readiness is purely about whether the
+    model/OCR dependencies this service actually uses are available.
+    """
+    checks = {}
 
     # Classification model loaded
     checks["classifier"] = {
@@ -220,7 +198,7 @@ def liveness_check():
 # =============================================================================
 
 @app.post("/api/v1/categorize", response_model=BaseResponse)
-async def categorize_item(request: BaseRequest, db: Session = Depends(get_db)):
+async def categorize_item(request: BaseRequest):
     """
     Predicts the category for a given grocery item name.
 
@@ -236,9 +214,6 @@ async def categorize_item(request: BaseRequest, db: Session = Depends(get_db)):
 
         if settings.USE_REAL_CLASSIFICATION and classifier is not None:
             # Real Zero-Shot Classification
-            model_id = settings.CLASSIFICATION_MODEL
-            model_version = "transformers"
-
             result = classifier(
                 payload.item_name,
                 candidate_labels=payload.candidate_labels,
@@ -255,9 +230,6 @@ async def categorize_item(request: BaseRequest, db: Session = Depends(get_db)):
             )
         else:
             # MOCK IMPLEMENTATION for development
-            model_id = "mock-classifier"
-            model_version = "1.0.0"
-
             predicted_category = "Produce"
             confidence = 0.95
 
@@ -288,26 +260,6 @@ async def categorize_item(request: BaseRequest, db: Session = Depends(get_db)):
 
         latency_ms = (time.time() - start_time) * 1000
 
-        # Store artifact
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="categorization",
-            input_payload=request.payload,
-            output_payload={
-                **response_payload.model_dump(),
-                "confidence_level": confidence_level,
-                "all_scores": all_scores,
-                "processing_time_ms": round(latency_ms, 2)
-            },
-            status="success",
-            model_id=model_id,
-            model_version=model_version,
-            latency_ms=latency_ms,
-        )
-
         return BaseResponse(
             request_id=request.request_id,
             payload={
@@ -319,23 +271,7 @@ async def categorize_item(request: BaseRequest, db: Session = Depends(get_db)):
         )
 
     except Exception as e:
-        latency_ms = (time.time() - start_time) * 1000
         logger.error(f"Error processing request {request.request_id}: {str(e)}")
-
-        # Store error artifact
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="categorization",
-            input_payload=request.payload,
-            status="error",
-            error_message=str(e),
-            model_id=settings.CLASSIFICATION_MODEL if settings.USE_REAL_CLASSIFICATION else "mock-classifier",
-            model_version="transformers" if settings.USE_REAL_CLASSIFICATION else "1.0.0",
-            latency_ms=latency_ms,
-        )
 
         return BaseResponse(
             request_id=request.request_id,
@@ -346,7 +282,7 @@ async def categorize_item(request: BaseRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/api/v1/categorize-batch", response_model=BaseResponse)
-async def categorize_batch(request: BaseRequest, db: Session = Depends(get_db)):
+async def categorize_batch(request: BaseRequest):
     """
     Predicts categories for a batch of grocery items.
 
@@ -365,9 +301,6 @@ async def categorize_batch(request: BaseRequest, db: Session = Depends(get_db)):
 
         for item in payload.items:
             if settings.USE_REAL_CLASSIFICATION and classifier is not None:
-                model_id = settings.CLASSIFICATION_MODEL
-                model_version = "transformers"
-
                 result = classifier(
                     item.name,
                     candidate_labels=payload.candidate_labels,
@@ -378,9 +311,6 @@ async def categorize_batch(request: BaseRequest, db: Session = Depends(get_db)):
                 confidence = result["scores"][0]
             else:
                 # MOCK IMPLEMENTATION for development
-                model_id = "mock-classifier"
-                model_version = "1.0.0"
-
                 predicted_category = "Produce"
                 confidence = 0.95
 
@@ -418,43 +348,13 @@ async def categorize_batch(request: BaseRequest, db: Session = Depends(get_db)):
             processing_time_ms=processing_time_ms,
         )
 
-        # Store artifact
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="categorization_batch",
-            input_payload=request.payload,
-            output_payload=response_payload.model_dump(),
-            status="success",
-            model_id=model_id if payload.items else "none",
-            model_version=model_version if payload.items else "none",
-            latency_ms=processing_time_ms,
-        )
-
         return BaseResponse(
             request_id=request.request_id,
             payload=response_payload.model_dump()
         )
 
     except Exception as e:
-        processing_time_ms = (time.time() - start_time) * 1000
         logger.error(f"Error processing batch request {request.request_id}: {str(e)}")
-
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="categorization_batch",
-            input_payload=request.payload,
-            status="error",
-            error_message=str(e),
-            model_id=settings.CLASSIFICATION_MODEL if settings.USE_REAL_CLASSIFICATION else "mock-classifier",
-            model_version="transformers" if settings.USE_REAL_CLASSIFICATION else "1.0.0",
-            latency_ms=processing_time_ms,
-        )
 
         return BaseResponse(
             request_id=request.request_id,
@@ -465,7 +365,7 @@ async def categorize_batch(request: BaseRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/api/v1/extract-receipt", response_model=BaseResponse)
-async def extract_receipt_endpoint(request: BaseRequest, db: Session = Depends(get_db)):
+async def extract_receipt_endpoint(request: BaseRequest):
     """
     Extracts items from a receipt image.
 
@@ -482,7 +382,6 @@ async def extract_receipt_endpoint(request: BaseRequest, db: Session = Depends(g
             # Real OCR via vLLM
             from ocr_service import extract_receipt
 
-            model_id = settings.VLLM_MODEL
             model_version = "vllm"
 
             # Get image data
@@ -577,7 +476,6 @@ async def extract_receipt_endpoint(request: BaseRequest, db: Session = Depends(g
                         overall_confidence=result.overall_confidence,
                     )
 
-                    model_id = "tesseract-ocr"
                     try:
                         import pytesseract
                         tv = pytesseract.get_tesseract_version()
@@ -600,7 +498,6 @@ async def extract_receipt_endpoint(request: BaseRequest, db: Session = Depends(g
                 raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
         else:
             # Mock response for development/CI without OCR
-            model_id = "mock-ocr"
             model_version = "1.0.0"
 
             mock_items = [
@@ -627,51 +524,13 @@ async def extract_receipt_endpoint(request: BaseRequest, db: Session = Depends(g
         response_payload.model_version = model_version
         response_payload.processing_time_ms = latency_ms
 
-        # Store artifact
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="receipt_extraction",
-            input_payload=request.payload,
-            output_payload=response_payload.model_dump(),
-            status="success",
-            model_id=model_id,
-            model_version=model_version,
-            latency_ms=latency_ms,
-        )
-
         return BaseResponse(
             request_id=request.request_id,
             payload=response_payload.model_dump()
         )
 
     except Exception as e:
-        latency_ms = (time.time() - start_time) * 1000
         logger.error(f"Error extracting receipt {request.request_id}: {str(e)}")
-
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="receipt_extraction",
-            input_payload=request.payload,
-            status="error",
-            error_message=str(e),
-            model_id=(
-                settings.VLLM_MODEL if settings.USE_VLLM_OCR
-                else "tesseract-ocr" if settings.USE_TESSERACT_OCR
-                else "mock-ocr"
-            ),
-            model_version=(
-                "vllm" if settings.USE_VLLM_OCR
-                else "tesseract-5.x" if settings.USE_TESSERACT_OCR
-                else "1.0.0"
-            ),
-            latency_ms=latency_ms,
-        )
 
         return BaseResponse(
             request_id=request.request_id,
@@ -789,9 +648,8 @@ async def generate_embeddings_batch(request: EmbedBatchRequest):
 
 
 @app.post("/api/v1/optimize/meal-plan", response_model=BaseResponse)
-async def optimize_meal_plan_endpoint(request: BaseRequest, db: Session = Depends(get_db)):
+async def optimize_meal_plan_endpoint(request: BaseRequest):
     """Generate an optimized meal plan using Z3 SMT solver."""
-    start_time = time.time()
     try:
         payload = MealOptimizationRequestPayload(**request.payload)
 
@@ -804,7 +662,6 @@ async def optimize_meal_plan_endpoint(request: BaseRequest, db: Session = Depend
         }
 
         result = optimize_meal_plan(problem, timeout_ms=5000)
-        latency_ms = (time.time() - start_time) * 1000
 
         if result.get("status") == "optimal":
             response_payload = {
@@ -822,18 +679,6 @@ async def optimize_meal_plan_endpoint(request: BaseRequest, db: Session = Depend
                 "explanation": [],
             }
 
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="meal_optimization",
-            status="success" if result.get("status") == "optimal" else "no_solution",
-            input_data=request.payload,
-            output_data=response_payload,
-            latency_ms=latency_ms,
-        )
-
         return BaseResponse(
             request_id=request.request_id,
             status="success",
@@ -841,19 +686,6 @@ async def optimize_meal_plan_endpoint(request: BaseRequest, db: Session = Depend
         )
     except Exception as e:
         logger.error(f"Meal optimization error: {e}")
-        latency_ms = (time.time() - start_time) * 1000
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="meal_optimization",
-            status="error",
-            input_data=request.payload,
-            output_data={},
-            latency_ms=latency_ms,
-            error_message=str(e),
-        )
         return BaseResponse(
             request_id=request.request_id,
             status="error",
@@ -863,9 +695,8 @@ async def optimize_meal_plan_endpoint(request: BaseRequest, db: Session = Depend
 
 
 @app.post("/api/v1/optimize/suggestions", response_model=BaseResponse)
-async def optimize_suggestions_endpoint(request: BaseRequest, db: Session = Depends(get_db)):
+async def optimize_suggestions_endpoint(request: BaseRequest):
     """Get quick recipe suggestions based on inventory and preferences."""
-    start_time = time.time()
     try:
         payload = QuickSuggestionRequestPayload(**request.payload)
 
@@ -879,20 +710,7 @@ async def optimize_suggestions_endpoint(request: BaseRequest, db: Session = Depe
             limit=payload.limit,
         )
 
-        latency_ms = (time.time() - start_time) * 1000
         response_payload = {"suggestions": suggestions}
-
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="meal_suggestions",
-            status="success",
-            input_data=request.payload,
-            output_data=response_payload,
-            latency_ms=latency_ms,
-        )
 
         return BaseResponse(
             request_id=request.request_id,
@@ -901,281 +719,9 @@ async def optimize_suggestions_endpoint(request: BaseRequest, db: Session = Depe
         )
     except Exception as e:
         logger.error(f"Meal suggestion error: {e}")
-        latency_ms = (time.time() - start_time) * 1000
-        create_artifact(
-            db=db,
-            request_id=request.request_id,
-            tenant_id=request.tenant_id,
-            user_id=request.user_id,
-            feature="meal_suggestions",
-            status="error",
-            input_data=request.payload,
-            output_data={},
-            latency_ms=latency_ms,
-            error_message=str(e),
-        )
         return BaseResponse(
             request_id=request.request_id,
             status="error",
             error=str(e),
             payload={},
         )
-
-
-@app.post("/api/v1/receipts/extract", response_model=ReceiptExtractResponse)
-async def extract_receipt_ocr(request: ReceiptExtractRequest):
-    """
-    Extract structured data from receipt image using Tesseract OCR.
-
-    This is the MVP implementation using Tesseract + regex parsing.
-    Processes local image files and returns extracted merchant, date, total, and line items.
-
-    Future: Will be enhanced with LayoutLM for better accuracy.
-    """
-    start_time = time.time()
-
-    try:
-        from receipt_ocr import process_receipt
-
-        logger.info(
-            f"Processing receipt OCR request {request.request_id} "
-            f"for account {request.account_id}, image: {request.image_path}"
-        )
-
-        # Process the receipt
-        extraction_result = process_receipt(request.image_path, request.options)
-
-        processing_time_ms = (time.time() - start_time) * 1000
-
-        # Get Tesseract version for model_version field
-        try:
-            import pytesseract
-            tesseract_version = pytesseract.get_tesseract_version()
-            model_version = f"tesseract-{tesseract_version.major}.{tesseract_version.minor}"
-        except Exception:
-            model_version = "tesseract-5.x"
-
-        response = ReceiptExtractResponse(
-            version=request.version,
-            request_id=request.request_id,
-            status="success",
-            processing_time_ms=processing_time_ms,
-            model_version=model_version,
-            extraction=extraction_result
-        )
-
-        logger.info(
-            f"Receipt OCR completed in {processing_time_ms:.2f}ms, "
-            f"confidence={extraction_result.overall_confidence:.2f}, "
-            f"items={len(extraction_result.line_items)}"
-        )
-
-        return response
-
-    except FileNotFoundError as e:
-        processing_time_ms = (time.time() - start_time) * 1000
-        logger.error(f"File not found for request {request.request_id}: {str(e)}")
-        raise HTTPException(status_code=404, detail=f"Image file not found: {str(e)}")
-
-    except RuntimeError as e:
-        processing_time_ms = (time.time() - start_time) * 1000
-        error_msg = str(e)
-        logger.error(f"Runtime error for request {request.request_id}: {error_msg}")
-
-        if "Tesseract" in error_msg:
-            raise HTTPException(
-                status_code=503,
-                detail="OCR service unavailable. Tesseract is not installed."
-            )
-        raise HTTPException(status_code=500, detail=error_msg)
-
-    except ValueError as e:
-        processing_time_ms = (time.time() - start_time) * 1000
-        logger.error(f"Invalid image for request {request.request_id}: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Invalid or corrupt image: {str(e)}")
-
-    except Exception as e:
-        processing_time_ms = (time.time() - start_time) * 1000
-        logger.error(f"Unexpected error processing receipt {request.request_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Receipt processing failed: {str(e)}")
-
-
-# =============================================================================
-# Job Management Endpoints
-# =============================================================================
-
-@app.post("/api/v1/jobs", response_model=JobStatusResponse)
-async def submit_async_job(request: JobSubmitRequest, db: Session = Depends(get_db)):
-    """
-    Submit a job for background processing.
-
-    Returns immediately with a job ID that can be polled for status.
-    """
-    job = submit_job(
-        db=db,
-        tenant_id=request.tenant_id,
-        user_id=request.user_id,
-        feature=request.feature,
-        input_payload=request.payload,
-        model_id=request.model_id,
-        model_version=request.model_version,
-    )
-
-    return JobStatusResponse(
-        job_id=job.id,
-        status=job.status.value,
-        feature=job.feature,
-        created_at=job.created_at.isoformat(),
-    )
-
-
-@app.get("/api/v1/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(
-    job_id: str,
-    tenant_id: str = Query(..., description="Tenant ID for access control"),
-    db: Session = Depends(get_db)
-):
-    """
-    Get the status of a background job.
-
-    Returns full job details including output if completed.
-    """
-    job = get_job(db, job_id, tenant_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    return JobStatusResponse(**job_to_dict(job))
-
-
-@app.get("/api/v1/jobs", response_model=JobListResponse)
-async def list_tenant_jobs(
-    tenant_id: str = Query(..., description="Tenant ID for access control"),
-    feature: Optional[str] = Query(None, description="Filter by feature"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
-):
-    """
-    List jobs for a tenant.
-
-    Supports filtering by feature and status with pagination.
-    """
-    status_enum = JobStatus(status) if status else None
-    jobs = list_jobs(db, tenant_id, feature=feature, status=status_enum, limit=limit, offset=offset)
-
-    return JobListResponse(
-        jobs=[job_to_dict(job) for job in jobs],
-        total=len(jobs),
-        limit=limit,
-        offset=offset,
-    )
-
-
-# =============================================================================
-# Artifact Endpoints
-# =============================================================================
-
-@app.get("/api/v1/artifacts/{artifact_id}", response_model=ArtifactResponse)
-async def get_artifact_details(
-    artifact_id: str,
-    tenant_id: str = Query(..., description="Tenant ID for access control"),
-    db: Session = Depends(get_db)
-):
-    """
-    Get details of an AI artifact.
-
-    Returns full artifact including input/output payloads.
-    """
-    artifact = get_artifact(db, artifact_id, tenant_id)
-    if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
-
-    return ArtifactResponse(**artifact_to_dict(artifact))
-
-
-@app.get("/api/v1/artifacts", response_model=ArtifactListResponse)
-async def list_tenant_artifacts(
-    tenant_id: str = Query(..., description="Tenant ID for access control"),
-    feature: Optional[str] = Query(None, description="Filter by feature"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
-):
-    """
-    List artifacts for a tenant.
-
-    Supports filtering by feature and status with pagination.
-    """
-    artifacts = list_artifacts(db, tenant_id, feature=feature, status=status, limit=limit, offset=offset)
-
-    return ArtifactListResponse(
-        artifacts=[artifact_to_dict(a) for a in artifacts],
-        total=len(artifacts),
-        limit=limit,
-        offset=offset,
-    )
-
-
-# =============================================================================
-# Feedback Endpoints
-# =============================================================================
-
-@app.post("/api/v1/feedback", response_model=FeedbackResponse)
-async def submit_feedback(request: FeedbackRequest, db: Session = Depends(get_db)):
-    """
-    Submit feedback for an AI operation.
-
-    Accepts thumbs up/down ratings with optional notes.
-    """
-    feedback = add_feedback(
-        db=db,
-        tenant_id=request.tenant_id,
-        user_id=request.user_id,
-        rating=request.rating,
-        note=request.note,
-        artifact_id=request.artifact_id,
-        job_id=request.job_id,
-    )
-
-    return FeedbackResponse(**feedback_to_dict(feedback))
-
-
-# =============================================================================
-# Register Job Handlers
-# =============================================================================
-
-@register_job_handler("receipt_extraction")
-async def handle_receipt_extraction(input_payload: dict) -> dict:
-    """Background handler for receipt extraction jobs."""
-    if settings.USE_VLLM_OCR:
-        from ocr_service import extract_receipt
-
-        image_b64 = input_payload.get("image_base64")
-        if not image_b64:
-            raise ValueError("image_base64 required in payload")
-
-        return await extract_receipt(image_b64)
-    else:
-        # MOCK IMPLEMENTATION for development
-        return {
-            "items": [
-                {"name": "Bananas", "quantity": 1.0, "unit": "bunch", "price": 1.99, "confidence": 0.98},
-                {"name": "Milk", "quantity": 1.0, "unit": "gallon", "price": 3.49, "confidence": 0.95}
-            ],
-            "total": 5.48,
-            "merchant": "Mock Supermarket",
-            "date": "2024-01-01"
-        }
-
-
-@register_job_handler("embedding_batch")
-async def handle_embedding_batch(input_payload: dict) -> dict:
-    """Background handler for batch embedding jobs."""
-    texts = input_payload.get("texts", [])
-    # MOCK IMPLEMENTATION
-    return {
-        "vectors": [[0.1] * 384 for _ in texts],
-        "count": len(texts)
-    }

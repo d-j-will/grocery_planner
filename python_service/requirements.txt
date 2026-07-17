@@ -2,9 +2,6 @@
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
 
-# Database
-sqlalchemy>=2.0.36
-
 # HTTP client
 httpx==0.26.0
 
@@ -34,7 +31,6 @@ opentelemetry-api>=1.24.0
 opentelemetry-sdk>=1.24.0
 opentelemetry-exporter-otlp-proto-grpc>=1.24.0
 opentelemetry-instrumentation-fastapi>=0.45b0
-opentelemetry-instrumentation-sqlalchemy>=0.45b0
 opentelemetry-instrumentation-logging>=0.45b0
 
 # Development debugging

@@ -53,7 +53,17 @@ services:
       postgres:
         condition: service_healthy
       python-service:
-        condition: service_healthy
+        # started, not healthy: the AI sidecar is optional (its health reports
+        # "degraded" and the app must boot without it) — mirrors prod. (c29)
+        condition: service_started
+    healthcheck:
+      # /ready is DB-aware and sidecar-independent (see health_controller). curl
+      # is present in the runner image.
+      test: ["CMD", "curl", "-f", "http://localhost:4000/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     command: sh -c "mix ash.setup && mix phx.server"
 
 volumes:

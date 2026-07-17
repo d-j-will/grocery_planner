@@ -12,31 +12,14 @@ import pytest
 import base64
 from unittest.mock import patch
 from fastapi.testclient import TestClient
-import tempfile
 
 from main import app
-from database import Base, get_engine, reset_engine
 from config import settings
-
-# Create a temporary database file for tests
-_test_db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-os.environ["AI_DATABASE_URL"] = f"sqlite:///{_test_db_file.name}"
-
-
-@pytest.fixture(scope="function")
-def db_session():
-    """Create a fresh database for each test."""
-    reset_engine()
-    engine = get_engine()
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture
-def client(db_session):
-    """Create test client with fresh database."""
+def client():
+    """Create a test client against the stateless app."""
     return TestClient(app)
 
 
@@ -142,42 +125,6 @@ class TestTesseractExtractReceiptEndpoint:
         data = response.json()
         assert data["status"] == "error"
         assert "tesseract" in data["error"].lower() or "503" in data["error"]
-
-    @patch('main.settings.USE_TESSERACT_OCR', True)
-    @patch('main.settings.USE_VLLM_OCR', False)
-    def test_tesseract_endpoint_creates_artifact(self, client, sample_receipt_base64):
-        """Test that successful extraction creates an artifact."""
-        response = client.post("/api/v1/extract-receipt", json={
-            "request_id": "test-artifact-creation",
-            "tenant_id": "test-tenant-artifact",
-            "user_id": "test-user",
-            "feature": "extraction",
-            "payload": {
-                "image_base64": sample_receipt_base64
-            }
-        })
-
-        assert response.status_code == 200
-
-        # Check that an artifact was created
-        artifacts_response = client.get(
-            "/api/v1/artifacts",
-            params={"tenant_id": "test-tenant-artifact"},
-            headers={"X-Tenant-ID": "test-tenant-artifact"}
-        )
-
-        assert artifacts_response.status_code == 200
-        artifacts = artifacts_response.json()["artifacts"]
-        assert len(artifacts) >= 1
-
-        # Find our artifact
-        artifact = next(
-            (a for a in artifacts if a["request_id"] == "test-artifact-creation"),
-            None
-        )
-        assert artifact is not None
-        assert artifact["feature"] == "receipt_extraction"
-
 
 class TestTesseractProcessReceipt:
     """Tests for receipt_ocr.process_receipt() function directly."""

@@ -4,32 +4,14 @@ Tests for health check endpoints (/health, /health/ready, /health/live).
 Covers basic health, readiness with dependency checks, and liveness probe.
 """
 
-import os
 import pytest
-import tempfile
 from fastapi.testclient import TestClient
 from main import app
-from database import Base, get_engine, reset_engine
-
-# Create a temporary database file for tests
-_test_db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-os.environ["AI_DATABASE_URL"] = f"sqlite:///{_test_db_file.name}"
-
-
-@pytest.fixture(scope="function")
-def db_session():
-    """Create a fresh database for each test."""
-    reset_engine()
-    engine = get_engine()
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture
-def client(db_session):
-    """Create test client with fresh database."""
+def client():
+    """Create a test client against the stateless app."""
     return TestClient(app)
 
 
@@ -64,17 +46,12 @@ def test_readiness_check_returns_dependency_statuses(client):
     assert "version" in data
 
     checks = data["checks"]
-    assert "database" in checks
+    # The sidecar is stateless — there is no datastore to probe. Readiness is
+    # only about the model/OCR dependencies this service actually uses.
+    assert "database" not in checks
     assert "classifier" in checks
     assert "embedding_model" in checks
     assert "tesseract" in checks
-
-
-def test_readiness_database_check_succeeds(client):
-    """Readiness check validates database connectivity."""
-    response = client.get("/health/ready")
-    data = response.json()
-    assert data["checks"]["database"]["status"] == "ok"
 
 
 def test_readiness_classifier_not_loaded_in_test(client):

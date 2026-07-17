@@ -118,14 +118,12 @@ services:
       DEBUG: "false"
       TIDEWAVE_ENABLED: "false" # dev tool; defaults to TRUE in config.py — must be off
       OTEL_ENABLED: "false" # flipped by the OTel exporter ticket (t7j)
-      AI_DATABASE_URL: sqlite:////data/ai_data.db
     volumes:
       # MiniLM (~90MB) downloads from HF on first boot into appuser's cache;
       # volume-backed so recreates don't re-download. Alternative (rejected
       # for now): bake the model into the image — bigger image, no first-boot
       # network dependency. Revisit if first boot on the homelab is painful.
       - hf-cache:/home/appuser/.cache
-      - ai-data:/data
     # default network only — reached via app, never public
     # Sizing: react to this — VM specs unknown to the draft. Ceiling chosen
     # so an OCR burst can't starve postgres/app on the shared host.
@@ -145,7 +143,6 @@ volumes:
   pg-data:
   receipt-uploads:
   hf-cache:
-  ai-data:
 
 networks:
   proxy:

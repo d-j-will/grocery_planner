@@ -94,29 +94,6 @@ class TestTelemetryModule:
             setup_telemetry(mock_app, service_name="test-svc")
             mock_instrument.assert_called_once_with(mock_app)
 
-    def test_setup_telemetry_instruments_sqlalchemy_when_engine_provided(self):
-        """setup_telemetry should instrument SQLAlchemy when engine is given."""
-        from telemetry import setup_telemetry
-        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-
-        mock_app = MagicMock()
-        mock_engine = MagicMock()
-
-        with patch.object(SQLAlchemyInstrumentor, "instrument") as mock_instrument:
-            setup_telemetry(mock_app, engine=mock_engine, service_name="test-svc")
-            mock_instrument.assert_called_once_with(engine=mock_engine)
-
-    def test_setup_telemetry_skips_sqlalchemy_when_no_engine(self):
-        """setup_telemetry should skip SQLAlchemy instrumentation without engine."""
-        from telemetry import setup_telemetry
-        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-
-        mock_app = MagicMock()
-
-        with patch.object(SQLAlchemyInstrumentor, "instrument") as mock_instrument:
-            setup_telemetry(mock_app, engine=None, service_name="test-svc")
-            mock_instrument.assert_not_called()
-
     def test_setup_telemetry_instruments_logging(self):
         """setup_telemetry should add trace context to logging."""
         from telemetry import setup_telemetry

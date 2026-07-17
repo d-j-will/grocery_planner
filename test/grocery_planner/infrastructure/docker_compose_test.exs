@@ -67,26 +67,38 @@ defmodule GroceryPlanner.Infrastructure.DockerComposeTest do
              "python-service healthcheck should use curl to /health endpoint"
     end
 
-    test "elixir-app depends on both postgres and python-service" do
+    test "elixir-app depends on postgres and python-service" do
       content = File.read!(@docker_compose_path)
 
-      # Check elixir-app has depends_on
-      assert content =~ ~r/elixir-app:.*depends_on:/s, "elixir-app missing depends_on"
-
-      # Check it depends on postgres
       assert content =~ ~r/elixir-app:.*depends_on:.*postgres:/s,
              "elixir-app should depend on postgres"
 
-      # Check it depends on python-service
       assert content =~ ~r/elixir-app:.*depends_on:.*python-service:/s,
              "elixir-app should depend on python-service"
+    end
 
-      # Check both have health conditions
-      assert content =~ ~r/postgres:.*condition: service_healthy/s,
-             "elixir-app should wait for postgres health"
+    test "elixir-app waits only for the sidecar to START, not be healthy (c29)" do
+      content = File.read!(@docker_compose_path)
 
-      assert content =~ ~r/python-service:.*condition: service_healthy/s,
-             "elixir-app should wait for python-service health"
+      # The only `python-service:` entry followed by a `condition:` is elixir-app's
+      # depends_on (the service *definition* is followed by `build:`). The AI
+      # sidecar is optional: its health reports "degraded" and the app must boot
+      # without it, so the condition is service_started, never service_healthy.
+      assert content =~ ~r/python-service:\n(\s*#.*\n)*\s*condition: service_started/,
+             "elixir-app should depend on python-service with service_started"
+
+      refute content =~ ~r/python-service:\n(\s*#.*\n)*\s*condition: service_healthy/,
+             "elixir-app must not hard-depend on python-service health (c29)"
+    end
+
+    test "elixir-app has a readiness healthcheck hitting /ready (c29)" do
+      content = File.read!(@docker_compose_path)
+
+      assert content =~ ~r/elixir-app:.*healthcheck:/s,
+             "elixir-app missing healthcheck configuration"
+
+      assert content =~ ~r/elixir-app:.*healthcheck:.*test:.*curl.*\/ready/s,
+             "elixir-app healthcheck should curl the /ready readiness endpoint"
     end
 
     test "required environment variables are set for postgres" do

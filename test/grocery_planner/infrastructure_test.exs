@@ -99,14 +99,15 @@ defmodule GroceryPlanner.InfrastructureTest do
       assert body["status"] in ["ok", "degraded"]
     end
 
-    test "AI service transport error returns degraded with 503" do
+    test "AI service transport error returns degraded with 200 (optional sidecar)" do
       Req.Test.stub(AiClient, fn conn ->
         Req.Test.transport_error(conn, :econnrefused)
       end)
 
       conn = build_conn()
       conn = get(conn, "/health_check")
-      body = json_response(conn, 503)
+      # Sidecar down is "degraded", not fatal — the app stays in rotation (c29).
+      body = json_response(conn, 200)
 
       assert body["status"] == "degraded"
       assert body["checks"]["ai_service"]["status"] == "unavailable"
@@ -184,7 +185,7 @@ defmodule GroceryPlanner.InfrastructureTest do
       assert body["checks"]["oban"]["status"] in ["ok", "paused", "unknown"]
     end
 
-    test "AI service error status (not unavailable) returns ok overall" do
+    test "AI service reporting error is degraded, not fatal (200)" do
       Req.Test.stub(AiClient, fn conn ->
         Req.Test.json(conn, %{
           "status" => "error",
@@ -197,10 +198,10 @@ defmodule GroceryPlanner.InfrastructureTest do
 
       conn = build_conn()
       conn = get(conn, "/health_check")
-      body = json_response(conn, 503)
+      # AI service responded but reported error -> degraded -> still 200 (the AI
+      # is optional; only our own DB failing takes the app out of rotation). c29.
+      body = json_response(conn, 200)
 
-      # AI service responded (not unavailable), but reported error
-      # According to determine_status logic, AI error/unavailable -> degraded
       assert body["status"] == "degraded"
       assert body["checks"]["ai_service"]["status"] == "error"
     end
@@ -224,10 +225,10 @@ defmodule GroceryPlanner.InfrastructureTest do
         conn = build_conn()
         conn = get(conn, "/health_check")
 
-        # Response status should be one of the valid statuses
-        # Determine expected HTTP status code based on AI status
-        expected_http_status = if ai_status in ["error", "unavailable"], do: 503, else: 200
-        body = json_response(conn, expected_http_status)
+        # DB is healthy in every case here, and the AI sidecar never causes a 503
+        # (its outage is "degraded", which stays 200) — only a DB failure would
+        # be fatal. So the HTTP status is always 200 regardless of AI status (c29).
+        body = json_response(conn, 200)
         assert body["status"] in ["ok", "degraded", "error"]
       end
     end
@@ -248,9 +249,9 @@ defmodule GroceryPlanner.InfrastructureTest do
 
         conn = build_conn()
         conn = get(conn, "/health_check")
-        body = json_response(conn, 503)
+        # Healthy DB + unhealthy AI => degraded, and degraded stays 200 (c29).
+        body = json_response(conn, 200)
 
-        # With healthy DB but unhealthy AI, status should be degraded
         if body["checks"]["database"]["status"] == "ok" do
           assert body["status"] == "degraded"
         end

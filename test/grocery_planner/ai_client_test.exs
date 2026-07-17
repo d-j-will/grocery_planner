@@ -354,80 +354,6 @@ defmodule GroceryPlanner.AiClientTest do
     end
   end
 
-  # ── Job Management ──────────────────────────────────────────────
-
-  describe "submit_job/4" do
-    test "submits a background job and receives job_id" do
-      Req.Test.stub(AiClient, fn conn ->
-        {:ok, body, conn} = Plug.Conn.read_body(conn)
-        decoded = Jason.decode!(body)
-
-        assert decoded["feature"] == "batch_categorization"
-        assert decoded["tenant_id"] == "test-tenant"
-        assert decoded["user_id"] == "test-user"
-        assert is_map(decoded["payload"])
-
-        Req.Test.json(conn, %{
-          "job_id" => "job_abc123",
-          "status" => "queued",
-          "created_at" => "2026-02-05T12:00:00Z"
-        })
-      end)
-
-      payload = %{items: [%{name: "Milk"}], candidate_labels: ["Dairy"]}
-      assert {:ok, body} = AiClient.submit_job("batch_categorization", payload, @context)
-      assert body["job_id"] == "job_abc123"
-      assert body["status"] == "queued"
-    end
-
-    test "returns error when job submission fails" do
-      Req.Test.stub(AiClient, fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(429, Jason.encode!(%{"error" => "rate_limited"}))
-      end)
-
-      # 429 is a 4xx -> bad input (§4a); detail carries the decoded body.
-      assert {:error, {:bad_input, detail}} = AiClient.submit_job("categorize", %{}, @context)
-      assert detail["error"] == "rate_limited"
-    end
-  end
-
-  describe "get_job/3" do
-    test "retrieves job status by ID with tenant header" do
-      Req.Test.stub(AiClient, fn conn ->
-        assert conn.request_path == "/api/v1/jobs/job_abc123"
-        assert conn.method == "GET"
-
-        tenant = Plug.Conn.get_req_header(conn, "x-tenant-id")
-        assert tenant == ["test-tenant"]
-
-        Req.Test.json(conn, %{
-          "job_id" => "job_abc123",
-          "status" => "completed",
-          "result" => %{"predictions" => [%{"category" => "Dairy"}]},
-          "completed_at" => "2026-02-05T12:01:00Z"
-        })
-      end)
-
-      assert {:ok, body} = AiClient.get_job("job_abc123", @context)
-      assert body["status"] == "completed"
-      assert body["result"]["predictions"] |> hd() |> Map.get("category") == "Dairy"
-    end
-
-    test "returns error for non-existent job" do
-      Req.Test.stub(AiClient, fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(404, Jason.encode!(%{"error" => "job_not_found"}))
-      end)
-
-      # 404 is a 4xx -> bad input (§4a); detail carries the decoded body.
-      assert {:error, {:bad_input, detail}} = AiClient.get_job("nonexistent", @context)
-      assert detail["error"] == "job_not_found"
-    end
-  end
-
   # ── Cross-Cutting Behavioral Tests ──────────────────────────────
 
   describe "request construction" do
@@ -503,8 +429,6 @@ defmodule GroceryPlanner.AiClientTest do
       assert {:error, _} = AiClient.extract_receipt("x", @context)
       assert {:error, _} = AiClient.generate_embeddings([], @context)
       assert {:error, _} = AiClient.generate_embeddings_batch([], @context)
-      assert {:error, _} = AiClient.submit_job("x", %{}, @context)
-      assert {:error, _} = AiClient.get_job("x", @context)
       assert {:error, _} = AiClient.health_check()
     end
 

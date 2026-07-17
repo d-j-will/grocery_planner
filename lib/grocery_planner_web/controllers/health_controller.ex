@@ -10,8 +10,13 @@ defmodule GroceryPlannerWeb.HealthController do
 
     status = determine_status(checks)
 
+    # Only a hard failure (DB down => "error") takes the app out of rotation with
+    # 503. The AI sidecar is optional and flag-gated: its outage yields "degraded"
+    # and MUST still return 200 with the flag in the body (c29), or a sidecar
+    # blip reports the whole app unhealthy. Liveness/readiness gating lives in
+    # `ready/2`; this endpoint is the richer monitoring signal.
     conn
-    |> put_status(if status == "ok", do: 200, else: 503)
+    |> put_status(if status == "error", do: 503, else: 200)
     |> json(%{
       status: status,
       checks: checks,

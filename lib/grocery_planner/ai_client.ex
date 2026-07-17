@@ -107,32 +107,6 @@ defmodule GroceryPlanner.AiClient do
     |> handle_response()
   end
 
-  @doc """
-  Submits a background job to the AI service.
-  """
-  def submit_job(feature, payload, context, opts \\ []) do
-    request_body = %{
-      tenant_id: context.tenant_id,
-      user_id: context.user_id,
-      feature: feature,
-      payload: payload
-    }
-
-    Req.post(client(opts), url: "/api/v1/jobs", json: request_body)
-    |> handle_response()
-  end
-
-  @doc """
-  Gets the status of a background job.
-  """
-  def get_job(job_id, context, opts \\ []) do
-    Req.get(client(opts),
-      url: "/api/v1/jobs/#{job_id}",
-      headers: [{"x-tenant-id", context.tenant_id}]
-    )
-    |> handle_response()
-  end
-
   # --- Internal Helpers ---
 
   defp post(url, payload, feature, context, opts) do

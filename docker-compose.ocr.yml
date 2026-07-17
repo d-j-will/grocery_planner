@@ -94,7 +94,6 @@ services:
       - VLLM_BASE_URL=http://vllm:8001/v1
       - VLLM_MODEL=nanonets/Nanonets-OCR-s
       - USE_VLLM_OCR=true
-      - AI_DATABASE_URL=sqlite:///./ai_data.db
     depends_on:
       vllm-nvidia:
         condition: service_healthy

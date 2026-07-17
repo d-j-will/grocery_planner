@@ -3,7 +3,6 @@ OpenTelemetry instrumentation setup for the AI service.
 
 Provides distributed tracing with:
 - FastAPI auto-instrumentation (HTTP spans)
-- SQLAlchemy auto-instrumentation (database spans)
 - Logging integration (trace context in logs)
 - Custom span creation for AI operations
 """
@@ -16,7 +15,6 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 
 logger = logging.getLogger("grocery-planner-ai")
@@ -27,7 +25,6 @@ tracer = trace.get_tracer("grocery-planner-ai")
 
 def setup_telemetry(
     app,
-    engine=None,
     endpoint="http://localhost:4317",
     service_name="grocery-planner-ai",
 ):
@@ -36,7 +33,6 @@ def setup_telemetry(
 
     Args:
         app: FastAPI application instance
-        engine: SQLAlchemy engine for database tracing (optional)
         endpoint: OTLP collector endpoint
         service_name: Service name for trace identification
 
@@ -58,10 +54,6 @@ def setup_telemetry(
 
     # Auto-instrument FastAPI (adds HTTP spans)
     FastAPIInstrumentor.instrument_app(app)
-
-    # Auto-instrument SQLAlchemy (adds database spans)
-    if engine:
-        SQLAlchemyInstrumentor().instrument(engine=engine)
 
     # Add trace context (trace_id, span_id) to log records
     LoggingInstrumentor().instrument(set_logging_format=True)

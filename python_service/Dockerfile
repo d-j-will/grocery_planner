@@ -37,13 +37,10 @@ RUN pip install --index-url https://download.pytorch.org/whl/cpu torch \
 # Copy the rest of the application code
 COPY . .
 
-# Create a non-root user and switch to it. /data holds the SQLite DB
-# (AI_DATABASE_URL=sqlite:////data/ai_data.db) and is backed by the ai-data
-# volume. Create + own it here so that when Docker first-populates the empty
-# named volume from the image, the volume root inherits appuser ownership —
-# otherwise it mounts as root:root and SQLite can't open the DB file (the
-# sidecar crash-loops on "unable to open database file").
-RUN useradd -m appuser && mkdir -p /data && chown -R appuser /app /data
+# Create a non-root user and switch to it. The sidecar is stateless now — Oban
+# (Elixir) owns all job state — so there is no SQLite DB and no /data volume to
+# own (AI-006 Arc 4, grocery_planner-4x6.3). Only /app needs appuser ownership.
+RUN useradd -m appuser && chown -R appuser /app
 USER appuser
 
 # Expose the port the app runs on
