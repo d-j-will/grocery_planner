@@ -26,7 +26,10 @@ defmodule GroceryPlanner.Integration.AiServiceIntegrationTest do
       {:ok, body} = AiClient.health_check()
       assert body["status"] in ["ok", "degraded"]
       assert is_map(body["checks"])
-      assert Map.has_key?(body["checks"], "database")
+      # The sidecar is stateless now (Oban owns job state) — there is no database
+      # check. Readiness reflects the model/OCR deps it actually uses (AI-006 Arc 4).
+      refute Map.has_key?(body["checks"], "database")
+      assert Map.has_key?(body["checks"], "tesseract")
     end
   end
 
