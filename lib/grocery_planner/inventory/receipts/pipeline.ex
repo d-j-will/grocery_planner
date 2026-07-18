@@ -77,9 +77,13 @@ defmodule GroceryPlanner.Inventory.Receipts.Pipeline do
   def enqueue_for_stage(%Receipt{}), do: :ok
 
   defp insert(worker, receipt_id) do
+    # OpentelemetryOban.insert (not Oban.insert) injects the active trace context
+    # into the job's meta on insert; the worker extracts it on start. This threads
+    # the whole staged pipeline — the web upload span, then stage→stage enqueues —
+    # into one trace instead of each worker starting a fresh root (grocery_planner-23v).
     %{receipt_id: receipt_id}
     |> worker.new()
-    |> Oban.insert()
+    |> OpentelemetryOban.insert()
   end
 
   # --- PubSub (UI hint only; durable state is written first) ------------------

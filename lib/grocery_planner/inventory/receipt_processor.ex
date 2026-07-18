@@ -5,6 +5,7 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessor do
   """
 
   require Logger
+  require OpenTelemetry.Tracer, as: Tracer
 
   alias GroceryPlanner.Inventory
   alias GroceryPlanner.Inventory.Receipts.Pipeline
@@ -29,13 +30,23 @@ defmodule GroceryPlanner.Inventory.ReceiptProcessor do
   def upload(file_params, _user, account, opts \\ []) do
     force = Keyword.get(opts, :force, false)
 
-    with {:ok, file_path, file_hash, file_size, mime_type} <- store_file(file_params),
-         :ok <- maybe_check_duplicate(file_hash, account.id, force),
-         {:ok, receipt} <- create_receipt(file_path, file_hash, file_size, mime_type, account) do
-      # Kick off the staged pipeline directly (extract -> persist -> match ->
-      # categorise). No cron latency; the reconciler is only a safety net.
-      Pipeline.enqueue_extract(receipt.id)
-      {:ok, receipt}
+    # Trace the upload as one operation so the enqueue below happens inside a
+    # span: opentelemetry_oban injects the active trace context into the job's
+    # meta on insert, and the worker extracts it on start — threading the upload
+    # into its pipeline instead of the worker starting a fresh trace root
+    # (grocery_planner-23v). The LiveView handle_event has no span of its own
+    # (opentelemetry_liveview is not installed), so this domain boundary is the
+    # root of the trace.
+    Tracer.with_span "receipt.upload" do
+      with {:ok, file_path, file_hash, file_size, mime_type} <- store_file(file_params),
+           :ok <- maybe_check_duplicate(file_hash, account.id, force),
+           {:ok, receipt} <-
+             create_receipt(file_path, file_hash, file_size, mime_type, account) do
+        # Kick off the staged pipeline directly (extract -> persist -> match ->
+        # categorise). No cron latency; the reconciler is only a safety net.
+        Pipeline.enqueue_extract(receipt.id)
+        {:ok, receipt}
+      end
     end
   end
 
